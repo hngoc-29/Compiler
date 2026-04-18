@@ -1,0 +1,127 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar        { width: 5px; height: 5px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: #2a2a42; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3a3a5e; }
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #0c0c14;
+  color: #dde1f0;
+}
+
+/* ── Resize handle ── */
+.resize-handle {
+  flex-shrink: 0;
+  background: #1f1f32;
+  transition: background 0.15s;
+  position: relative;
+  z-index: 10;
+}
+.resize-handle:hover,
+.resize-handle.dragging {
+  background: #6366f1;
+}
+.resize-handle-h {
+  width: 4px;
+  cursor: col-resize;
+}
+.resize-handle-v {
+  height: 4px;
+  cursor: row-resize;
+}
+
+/* ── Code textarea (input pane) ── */
+.code-textarea {
+  font-family: var(--font-mono), 'JetBrains Mono', Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.65;
+  resize: none;
+  outline: none;
+  background: #0c0c14;
+  color: #dde1f0;
+  border: none;
+  padding: 12px 14px;
+  width: 100%;
+  height: 100%;
+  tab-size: 4;
+}
+.code-textarea::placeholder { color: #3a3a5c; }
+
+/* ── Output pre ── */
+.output-pre {
+  font-family: var(--font-mono), monospace;
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  padding: 12px 14px;
+}
+
+/* ── Pane title bar ── */
+.pane-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  height: 32px;
+  background: #0e0e18;
+  border-bottom: 1px solid #1f1f32;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+/* ── macOS dots ── */
+.dot { width: 10px; height: 10px; border-radius: 50%; }
+.dot-red    { background: #ff5f57; }
+.dot-yellow { background: #febc2e; }
+.dot-green  { background: #28c840; }
+
+/* ── Panel toggle button ── */
+.panel-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  transition: background 0.12s, color 0.12s;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.panel-toggle.active {
+  background: #1f1f36;
+  color: #a5b4fc;
+  border-color: #3b3b60;
+}
+.panel-toggle.inactive {
+  background: transparent;
+  color: #4a4a6a;
+  border-color: transparent;
+}
+.panel-toggle:hover {
+  background: #1a1a2e;
+  color: #c7d2fe;
+}
+
+/* ── Loading pulse ── */
+@keyframes loadingPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.35; }
+}
+.loading-pulse { animation: loadingPulse 1.4s ease-in-out infinite; }
