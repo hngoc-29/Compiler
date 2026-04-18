@@ -234,7 +234,9 @@ export default function EditorLayout({
           <div
             className="flex flex-col overflow-hidden"
             style={isMobile
-              ? { height: visiblePanels === 1 ? '100%' : '45%', flexShrink: 0 }
+              ? (visiblePanels === 1
+                  ? { flex: 1 }
+                  : { height: '45%', flexShrink: 0 })
               : getDesktopStyle('code', codeW)
             }
           >
