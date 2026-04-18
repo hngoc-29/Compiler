@@ -2,14 +2,14 @@
 
 /**
  * components/Header.tsx
- * Thanh header: Logo | Panel toggles | Run | Export | Share
+ * Thanh header: Logo | Panel toggles | Optimize toggle | Run | Export | Share
  */
 
 import { useState, useRef, useEffect } from 'react';
 import {
   Play, Loader2, Download, ChevronDown,
   FileCode, FileText, FileOutput, Cpu,
-  PanelLeft, PanelRight,
+  PanelLeft, PanelRight, Zap, Gauge,
 } from 'lucide-react';
 import ShareButton from './ShareButton';
 import { downloadTextFile } from '@/lib/utils';
@@ -24,24 +24,27 @@ export interface PanelVisibility {
 interface CompileResult { stdout: string }
 
 interface HeaderProps {
-  code:         string;
-  input:        string;
-  output:       CompileResult | null;
-  isCompiling:  boolean;
-  onRun:        () => void;
-  panels:       PanelVisibility;
+  code:          string;
+  input:         string;
+  output:        CompileResult | null;
+  isCompiling:   boolean;
+  onRun:         () => void;
+  panels:        PanelVisibility;
   onTogglePanel: (p: keyof PanelVisibility) => void;
+  optimize:      boolean;
+  onToggleOptimize: () => void;
   isSharedView?: boolean;
 }
 
 export default function Header({
   code, input, output, isCompiling, onRun,
-  panels, onTogglePanel, isSharedView = false,
+  panels, onTogglePanel,
+  optimize, onToggleOptimize,
+  isSharedView = false,
 }: HeaderProps) {
   const [exportOpen, setExportOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
 
-  // Đóng dropdown khi click ra ngoài
   useEffect(() => {
     const fn = (e: MouseEvent) => {
       if (exportRef.current && !exportRef.current.contains(e.target as Node))
@@ -66,7 +69,6 @@ export default function Header({
       onClick: () => output && doDownload('output.txt', output.stdout) },
   ];
 
-  // Cấu hình nút toggle panel
   const panelButtons: { key: keyof PanelVisibility; label: string; icon: React.ReactNode }[] = [
     { key: 'code',   label: 'main.cpp',   icon: <FileCode   size={12}/> },
     { key: 'input',  label: 'input.txt',  icon: <FileText   size={12}/> },
@@ -109,11 +111,28 @@ export default function Header({
       {/* ── Actions (phải) ── */}
       <div className="flex items-center gap-1.5 shrink-0">
 
+        {/* ── Optimize toggle ── */}
+        <button
+          onClick={onToggleOptimize}
+          title={optimize
+            ? 'Chế độ Optimize (-O2): compile chậm hơn nhưng chạy nhanh hơn. Nhấn để chuyển về Fast.'
+            : 'Chế độ Fast (-O0): compile nhanh nhất. Nhấn để chuyển sang Optimize (-O2).'}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all border ${
+            optimize
+              ? 'bg-amber-900/40 border-amber-700/50 text-amber-300 hover:bg-amber-800/40'
+              : 'bg-emerald-900/30 border-emerald-700/40 text-emerald-400 hover:bg-emerald-800/30'
+          }`}
+        >
+          {optimize
+            ? <><Gauge size={11}/><span className="hidden sm:inline">O2</span></>
+            : <><Zap   size={11}/><span className="hidden sm:inline">Fast</span></>}
+        </button>
+
         {/* Run */}
         <button
           onClick={onRun}
           disabled={isCompiling}
-          title="Compile & Run (Ctrl+Enter)"
+          title={`Compile & Run (Ctrl+Enter) · ${optimize ? '-O2 optimize' : '-O0 fast'}`}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-md transition-colors">
           {isCompiling
             ? <Loader2 size={12} className="animate-spin"/>

@@ -14,7 +14,9 @@ export async function POST(req: NextRequest) {
     if (typeof body !== 'object' || body === null)
       return NextResponse.json({ error: 'Body phải là JSON object' }, { status: 400 });
 
-    const { code, input = '' } = body as { code: unknown; input?: unknown };
+    const { code, input = '', optimize = false } = body as {
+      code: unknown; input?: unknown; optimize?: unknown;
+    };
 
     if (typeof code !== 'string' || code.trim() === '')
       return NextResponse.json({ error: 'Trường "code" là bắt buộc' }, { status: 400 });
@@ -28,7 +30,10 @@ export async function POST(req: NextRequest) {
     if (Buffer.byteLength(input, 'utf-8') > MAX_INPUT_BYTES)
       return NextResponse.json({ error: `Input quá lớn (tối đa ${MAX_INPUT_BYTES / 1024}KB)` }, { status: 413 });
 
-    const result = await compileAndRun(code, input, RUN_TIMEOUT_MS);
+    const result = await compileAndRun(
+      code, input, RUN_TIMEOUT_MS,
+      optimize === true,
+    );
     return NextResponse.json(result, { status: 200 });
 
   } catch (err) {

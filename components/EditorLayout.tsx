@@ -39,6 +39,7 @@ export default function EditorLayout({
   const [output, setOutput] = useState<CompileResult | null>(null);
   const [isCompiling, setIsCompiling] = useState(false);
   const [isReady, setIsReady] = useState(false);
+  const [optimize, setOptimize] = useState(false);
 
   // ─── Panel visibility ───
   const [panels, setPanels] = useState<PanelVisibility>({
@@ -156,7 +157,7 @@ export default function EditorLayout({
       const res = await fetch('/api/compile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, input }),
+        body: JSON.stringify({ code, input, optimize }),
       });
       if (!res.ok) {
         const e = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
@@ -212,6 +213,7 @@ export default function EditorLayout({
         code={code} input={input} output={output}
         isCompiling={isCompiling} onRun={handleRun}
         panels={panels} onTogglePanel={handleTogglePanel}
+        optimize={optimize} onToggleOptimize={() => setOptimize(v => !v)}
         isSharedView={isSharedView}
       />
 

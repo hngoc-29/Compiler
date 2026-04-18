@@ -1,61 +1,27 @@
 /**
  * lib/compress.ts
  *
- * Nén/giải nén bằng LZMA level 9 (nén mạnh nhất, URL ngắn nhất).
- * Dùng package `lzma` – pure JavaScript, hoạt động cả browser lẫn Node.js.
+ * Nén/giải nén bằng fflate (deflate level 9) – pure JavaScript,
+ * KHÔNG cần Web Worker, hoạt động hoàn hảo cả browser lẫn Node.js.
  *
- * Tại sao LZMA level 9 cho URL ngắn hơn fflate/deflate?
- *   - LZMA dùng dictionary size lớn hơn và chuỗi back-reference dài hơn.
- *   - Với C++ source code (lặp nhiều keyword), LZMA nén tốt hơn deflate ~20-35%.
- *   - Level 9 = dictionary 64MB, word size 273 → nén chặt nhất có thể.
+ * ❌ Trước: dùng package `lzma` → crash trên browser vì nó tìm
+ *    Web Worker tại /src/lzma_worker.js (không được Next.js serve).
+ * ✅ Sau:  dùng `fflate` → không cần Worker, đồng bộ, nhẹ hơn.
  *
- * Encoding:
- *   Bytes (number[]) → base64url (URL-safe, không cần percent-encode).
- *   64 ký tự: A-Za-z0-9 + '-' + '_', không có padding '='.
+ * Encoding: Bytes (Uint8Array) → base64url (URL-safe, không cần percent-encode).
  */
 
-// Type cho lzma instance (package không ship .d.ts)
-type LZMAInstance = {
-  compress(
-    data: string | number[],
-    mode: number,
-    on_finish: (result: number[], error: unknown) => void,
-    on_progress?: (percent: number) => void
-  ): void;
-  decompress(
-    data: number[] | Uint8Array,
-    on_finish: (result: string | null, error: unknown) => void,
-    on_progress?: (percent: number) => void
-  ): void;
-};
-
-// Lazy singleton
-let _lzma: LZMAInstance | null = null;
-
-function getLZMA(): LZMAInstance {
-  if (_lzma) return _lzma;
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
-  const mod: any = require('lzma');
-  const Ctor = mod.LZMA ?? mod.default?.LZMA ?? mod;
-  _lzma = (typeof Ctor === 'function' ? new Ctor() : Ctor) as LZMAInstance;
-  return _lzma;
-}
+import { deflateSync, inflateSync, strToU8, strFromU8 } from 'fflate';
 
 // ──────────────────────────────────────────────────────
 // Encoding helpers
 // ──────────────────────────────────────────────────────
 
-/**
- * number[] → base64url string.
- * Xử lý theo chunk 8192 để tránh stack overflow với mảng lớn.
- */
-function bytesToBase64Url(bytes: number[]): string {
+function bytesToBase64Url(bytes: Uint8Array): string {
   const CHUNK = 8192;
   let binary = '';
   for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(
-      ...bytes.slice(i, i + CHUNK).map((b) => b & 0xff)
-    );
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
   }
   const b64 =
     typeof btoa !== 'undefined'
@@ -64,17 +30,14 @@ function bytesToBase64Url(bytes: number[]): string {
   return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
-/**
- * base64url string → number[].
- */
-function base64UrlToBytes(b64url: string): number[] {
+function base64UrlToBytes(b64url: string): Uint8Array {
   const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
   const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
   const binary =
     typeof atob !== 'undefined'
       ? atob(padded)
       : Buffer.from(padded, 'base64').toString('binary');
-  const result: number[] = new Array(binary.length);
+  const result = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
     result[i] = binary.charCodeAt(i) & 0xff;
   }
@@ -82,41 +45,32 @@ function base64UrlToBytes(b64url: string): number[] {
 }
 
 // ──────────────────────────────────────────────────────
-// Public async API (dùng ở cả client lẫn server)
+// Public API (dùng ở cả client lẫn server)
 // ──────────────────────────────────────────────────────
 
 /**
- * Nén chuỗi bằng LZMA level 9, trả về base64url.
- * Level 9: dictionary 64MB, cho URL ngắn nhất.
+ * Nén chuỗi bằng deflate level 9, trả về base64url.
  */
 export async function compressToBase64Url(data: string): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    getLZMA().compress(data, 9, (result, error) => {
-      if (error) { reject(new Error(`LZMA compress lỗi: ${error}`)); return; }
-      try { resolve(bytesToBase64Url(result)); } catch (e) { reject(e); }
-    });
-  });
+  const input = strToU8(data);
+  const compressed = deflateSync(input, { level: 9 });
+  return bytesToBase64Url(compressed);
 }
 
 /**
- * Giải nén base64url (LZMA) về string gốc.
+ * Giải nén base64url (deflate) về string gốc.
  */
 export async function decompressFromBase64Url(b64url: string): Promise<string> {
   if (!b64url || typeof b64url !== 'string')
     throw new Error('Input không hợp lệ: cần chuỗi base64url');
 
-  let bytes: number[];
-  try { bytes = base64UrlToBytes(b64url); }
-  catch (err) { throw new Error(`Lỗi decode base64url: ${err}`); }
+  let bytes: Uint8Array;
+  try {
+    bytes = base64UrlToBytes(b64url);
+  } catch (err) {
+    throw new Error(`Lỗi decode base64url: ${err}`);
+  }
 
-  return new Promise<string>((resolve, reject) => {
-    getLZMA().decompress(bytes, (result, error) => {
-      if (error) { reject(new Error(`LZMA decompress lỗi: ${error}`)); return; }
-      if (result === null || result === undefined) {
-        reject(new Error('LZMA decompress trả về null – dữ liệu bị hỏng'));
-        return;
-      }
-      resolve(result);
-    });
-  });
+  const decompressed = inflateSync(bytes);
+  return strFromU8(decompressed);
 }
