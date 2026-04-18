@@ -196,6 +196,12 @@ export default function EditorLayout({
     if (!panels[panelKey]) return { display: 'none' };
     // Nếu chỉ còn 1 panel → chiếm hết
     if (visiblePanels === 1) return { flex: 1 };
+    // Nếu panel này là panel cuối cùng hiển thị (output đã ẩn, input là cuối)
+    // thì dùng flex:1 để fill hết khoảng trống còn lại
+    const isLastVisible =
+      (panelKey === 'input' && !panels.output) ||
+      (panelKey === 'code'  && !panels.input && !panels.output);
+    if (isLastVisible) return { flex: 1, minWidth: MIN_PX };
     return { width: fixedPx, flexShrink: 0 };
   };
 
@@ -258,7 +264,9 @@ export default function EditorLayout({
           <div
             className="flex flex-col overflow-hidden"
             style={isMobile
-              ? { height: visiblePanels === 1 ? '100%' : '20%', flexShrink: 0 }
+              ? (visiblePanels === 1 || !panels.output
+                  ? { flex: 1, minHeight: MIN_PX }
+                  : { height: '20%', flexShrink: 0 })
               : getDesktopStyle('input', inputW)
             }
           >
