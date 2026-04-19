@@ -217,69 +217,35 @@ export default function CodeEditor({ value, onChange, onRun, readOnly = false }:
     editorRef.current?.focus();
   }, []);
 
-  // ── Fix 1: Mobile virtual keyboard resize ───────────────────────────────
+  // ── Fix 1: Monaco cần layout() tường minh khi container đổi kích thước ──
+  // KHÔNG set container.style.height thủ công — EditorLayout đã xử lý
+  // viewH = vv.height để co/restore outer container.
+  // CodeEditor chỉ cần báo Monaco redraw khi kích thước thay đổi.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const vv = window.visualViewport;
-    if (!vv) return;
     let rafId = 0;
 
-    // Reset về CSS tự nhiên (flex fill) khi bàn phím đóng
-    const resetHeight = () => {
-      const container = containerRef.current;
-      if (container) container.style.height = '';
-      editorRef.current?.layout();
-    };
-
-    // Một handler duy nhất cho cả mở lẫn đóng bàn phím
-    // → tránh race condition giữa nhiều listener dùng chung rafId
-    const onViewportChange = () => {
+    const relayout = () => {
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
-        const container = containerRef.current;
-        if (!container) return;
-
-        const keyboardOpen = vv.height < window.innerHeight * 0.75;
-
-        if (keyboardOpen) {
-          // Thu nhỏ editor vừa với phần màn hình còn lại
-          const rect      = container.getBoundingClientRect();
-          const available = vv.height - rect.top - 4;
-          if (available > 60) container.style.height = `${available}px`;
-          const editor = editorRef.current;
-          if (editor) {
-            editor.layout();
-            const pos = editor.getPosition();
-            if (pos) editor.revealLineInCenter(pos.lineNumber);
-          }
-        } else {
-          // Bàn phím đóng → restore về 100% flex
-          resetHeight();
-        }
+        editorRef.current?.layout();
       });
     };
 
-    // Fallback: focusout — khi focus rời khỏi editor (bàn phím ẩn)
-    // một số browser không trigger visualViewport resize đáng tin cậy
-    const onFocusOut = (e: FocusEvent) => {
-      const container = containerRef.current;
-      if (!container) return;
-      if (!container.contains(e.relatedTarget as Node)) {
-        setTimeout(resetHeight, 150);
-      }
-    };
-
-    vv.addEventListener('resize', onViewportChange);
-    vv.addEventListener('scroll', onViewportChange);
-    window.addEventListener('resize', onViewportChange); // fallback
-    document.addEventListener('focusout', onFocusOut);   // fallback
+    const vv = window.visualViewport;
+    if (vv) {
+      vv.addEventListener('resize', relayout);
+      vv.addEventListener('scroll', relayout);
+    }
+    window.addEventListener('resize', relayout);
 
     return () => {
       cancelAnimationFrame(rafId);
-      vv.removeEventListener('resize', onViewportChange);
-      vv.removeEventListener('scroll', onViewportChange);
-      window.removeEventListener('resize', onViewportChange);
-      document.removeEventListener('focusout', onFocusOut);
+      if (vv) {
+        vv.removeEventListener('resize', relayout);
+        vv.removeEventListener('scroll', relayout);
+      }
+      window.removeEventListener('resize', relayout);
     };
   }, []);
 

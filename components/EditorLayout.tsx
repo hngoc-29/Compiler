@@ -65,37 +65,28 @@ export default function EditorLayout({
   const [inputW, setInputW] = useState(0);
 
   // ─── Viewport height (keyboard-safe) ──────────────────────────────────────
-  // Fix: editor co lại khi bàn phím mở, restore đúng khi bàn phím đóng
+  // viewH = vv.height → outer container co/restore theo bàn phím ảo.
+  // CodeEditor KHÔNG cần set height thủ công — flexbox tự fill.
   const [viewH, setViewH] = useState<string>('100dvh');
 
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
-
-    let rafId: number;
+    let rafId = 0;
 
     const update = () => {
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
-        // Chỉ dùng vv.height — không cộng offsetTop
-        // vì offsetTop có thể còn giá trị cũ khi bàn phím vừa đóng,
-        // khiến height bị tính sai và không restore về trạng thái ban đầu.
         setViewH(`${Math.round(vv.height)}px`);
       });
     };
 
-    // visualViewport resize/scroll: bắt sự kiện bàn phím mở/đóng
+    // Fallback khi bàn phím đóng: một số browser không fire vv.resize
+    const onFocusOut = () => setTimeout(update, 150);
+
     vv.addEventListener('resize', update);
     vv.addEventListener('scroll', update);
-
-    // Fallback: window resize — một số browser không trigger
-    // visualViewport.resize đáng tin cậy khi bàn phím ẩn
     window.addEventListener('resize', update);
-
-    // Fallback cuối: focusout với delay nhỏ để đợi viewport ổn định
-    const onFocusOut = () => {
-      setTimeout(update, 100);
-    };
     document.addEventListener('focusout', onFocusOut);
 
     update();
