@@ -2,14 +2,14 @@
 
 /**
  * components/Header.tsx
- * Thanh header: Logo | Panel toggles | Optimize toggle | Run | Export | Share
+ * v2 – Thêm nút mở InputDrawer trên mobile (onOpenInput prop)
  */
 
 import { useState, useRef, useEffect } from 'react';
 import {
   Play, Loader2, Download, ChevronDown,
   FileCode, FileText, FileOutput, Cpu,
-  PanelLeft, PanelRight, Zap, Gauge,
+  PanelLeft, PanelRight, Zap, Gauge, Terminal,
 } from 'lucide-react';
 import ShareButton from './ShareButton';
 import { downloadTextFile } from '@/lib/utils';
@@ -24,16 +24,20 @@ export interface PanelVisibility {
 interface CompileResult { stdout: string }
 
 interface HeaderProps {
-  code:          string;
-  input:         string;
-  output:        CompileResult | null;
-  isCompiling:   boolean;
-  onRun:         () => void;
-  panels:        PanelVisibility;
-  onTogglePanel: (p: keyof PanelVisibility) => void;
-  optimize:      boolean;
+  code:             string;
+  input:            string;
+  output:           CompileResult | null;
+  isCompiling:      boolean;
+  onRun:            () => void;
+  panels:           PanelVisibility;
+  onTogglePanel:    (p: keyof PanelVisibility) => void;
+  optimize:         boolean;
   onToggleOptimize: () => void;
-  isSharedView?: boolean;
+  isSharedView?:    boolean;
+  /** Mobile only: mở InputDrawer */
+  onOpenInput?:     () => void;
+  /** Có nội dung trong input không (để hiển thị dot indicator) */
+  inputHasContent?: boolean;
 }
 
 export default function Header({
@@ -41,6 +45,8 @@ export default function Header({
   panels, onTogglePanel,
   optimize, onToggleOptimize,
   isSharedView = false,
+  onOpenInput,
+  inputHasContent = false,
 }: HeaderProps) {
   const [exportOpen, setExportOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
@@ -63,20 +69,21 @@ export default function Header({
   };
 
   const exportItems = [
-    { icon: <FileCode   size={13}/>, label: 'main.cpp',   hint: 'C++ source',   onClick: () => doDownload('main.cpp',   code) },
-    { icon: <FileText   size={13}/>, label: 'input.txt',  hint: 'Stdin input',  onClick: () => doDownload('input.txt',  input) },
-    { icon: <FileOutput size={13}/>, label: 'output.txt', hint: 'Stdout',       disabled: !output,
+    { icon: <FileCode   size={13}/>, label: 'main.cpp',   hint: 'C++ source',  onClick: () => doDownload('main.cpp',   code) },
+    { icon: <FileText   size={13}/>, label: 'input.txt',  hint: 'Stdin input', onClick: () => doDownload('input.txt',  input) },
+    { icon: <FileOutput size={13}/>, label: 'output.txt', hint: 'Stdout',      disabled: !output,
       onClick: () => output && doDownload('output.txt', output.stdout) },
   ];
 
+  // Trên desktop: hiện panel toggles; trên mobile: ẩn (không cần)
   const panelButtons: { key: keyof PanelVisibility; label: string; icon: React.ReactNode }[] = [
-    { key: 'code',   label: 'main.cpp',   icon: <FileCode   size={12}/> },
-    { key: 'input',  label: 'input.txt',  icon: <FileText   size={12}/> },
-    { key: 'output', label: 'output',     icon: <PanelRight size={12}/> },
+    { key: 'code',   label: 'main.cpp',  icon: <FileCode   size={12}/> },
+    { key: 'input',  label: 'input.txt', icon: <FileText   size={12}/> },
+    { key: 'output', label: 'output',    icon: <PanelRight size={12}/> },
   ];
 
   return (
-    <header className="flex items-center justify-between px-3 py-1.5 bg-bg-header border-b border-border shrink-0 z-20 gap-2 flex-wrap">
+    <header className="flex items-center justify-between px-3 py-1.5 bg-bg-header border-b border-border shrink-0 z-20 gap-2">
 
       {/* ── Logo ── */}
       <div className="flex items-center gap-2 shrink-0">
@@ -92,31 +99,51 @@ export default function Header({
         )}
       </div>
 
-      {/* ── Panel toggles (giữa) ── */}
+      {/* ── Centre: panel toggles (desktop) / empty (mobile) ── */}
       <div className="flex items-center gap-1 flex-1 justify-center">
-        <PanelLeft size={11} className="text-gray-600 mr-0.5"/>
-        {panelButtons.map(({ key, label, icon }) => (
-          <button
-            key={key}
-            onClick={() => onTogglePanel(key)}
-            className={`panel-toggle ${panels[key] ? 'active' : 'inactive'}`}
-            title={panels[key] ? `Ẩn ${label}` : `Hiện ${label}`}
-          >
-            {icon}
-            <span className="hidden md:inline">{label}</span>
-          </button>
-        ))}
+        {/* Desktop: show panel toggles */}
+        {!onOpenInput && (
+          <>
+            <PanelLeft size={11} className="text-gray-600 mr-0.5"/>
+            {panelButtons.map(({ key, label, icon }) => (
+              <button
+                key={key}
+                onClick={() => onTogglePanel(key)}
+                className={`panel-toggle ${panels[key] ? 'active' : 'inactive'}`}
+                title={panels[key] ? `Ẩn ${label}` : `Hiện ${label}`}
+              >
+                {icon}
+                <span className="hidden md:inline">{label}</span>
+              </button>
+            ))}
+          </>
+        )}
       </div>
 
-      {/* ── Actions (phải) ── */}
+      {/* ── Actions ── */}
       <div className="flex items-center gap-1.5 shrink-0">
 
-        {/* ── Optimize toggle ── */}
+        {/* Mobile: nút mở Input drawer */}
+        {onOpenInput && (
+          <button
+            onClick={onOpenInput}
+            className="relative flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-700/60 hover:bg-gray-600/60 text-gray-300 text-xs font-medium rounded-md transition-colors border border-gray-700/50"
+            title="Mở input.txt"
+          >
+            <Terminal size={12}/>
+            <span>Input</span>
+            {inputHasContent && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-yellow-400"/>
+            )}
+          </button>
+        )}
+
+        {/* Optimize toggle */}
         <button
           onClick={onToggleOptimize}
           title={optimize
-            ? 'Chế độ Optimize (-O2): compile chậm hơn nhưng chạy nhanh hơn. Nhấn để chuyển về Fast.'
-            : 'Chế độ Fast (-O0): compile nhanh nhất. Nhấn để chuyển sang Optimize (-O2).'}
+            ? 'Chế độ Optimize (-O2). Nhấn để đổi sang Fast (-O0).'
+            : 'Chế độ Fast (-O0). Nhấn để đổi sang Optimize (-O2).'}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all border ${
             optimize
               ? 'bg-amber-900/40 border-amber-700/50 text-amber-300 hover:bg-amber-800/40'
@@ -132,8 +159,9 @@ export default function Header({
         <button
           onClick={onRun}
           disabled={isCompiling}
-          title={`Compile & Run (Ctrl+Enter) · ${optimize ? '-O2 optimize' : '-O0 fast'}`}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-md transition-colors">
+          title="Compile & Run (Ctrl+Enter)"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-md transition-colors"
+        >
           {isCompiling
             ? <Loader2 size={12} className="animate-spin"/>
             : <Play    size={12}/>}
@@ -141,23 +169,25 @@ export default function Header({
           <kbd className="hidden lg:inline text-[9px] opacity-40 ml-0.5">⌘↵</kbd>
         </button>
 
-        {/* Export dropdown */}
+        {/* Export */}
         <div className="relative" ref={exportRef}>
           <button
             onClick={() => setExportOpen(v => !v)}
             className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded-md transition-colors"
-            title="Tải file">
+            title="Tải file"
+          >
             <Download size={12}/>
             <span className="hidden sm:inline">Export</span>
             <ChevronDown size={10} className={`transition-transform ${exportOpen ? 'rotate-180' : ''}`}/>
           </button>
 
           {exportOpen && (
-            <div className="absolute right-0 top-full mt-1 w-48 bg-[#1a1a2e] border border-border rounded-lg shadow-2xl z-50 py-1 animate-slide-in">
+            <div className="absolute right-0 top-full mt-1 w-48 bg-[#1a1a2e] border border-border rounded-lg shadow-2xl z-50 py-1">
               {exportItems.map(item => (
                 <button key={item.label} onClick={item.onClick}
                   disabled={item.disabled}
-                  className="flex items-center gap-2.5 w-full px-3 py-2 text-xs text-gray-300 hover:bg-gray-700/50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-left">
+                  className="flex items-center gap-2.5 w-full px-3 py-2 text-xs text-gray-300 hover:bg-gray-700/50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-left"
+                >
                   <span className="text-gray-600">{item.icon}</span>
                   <div>
                     <div className="font-mono font-medium">{item.label}</div>

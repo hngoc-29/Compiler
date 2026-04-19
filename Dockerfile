@@ -1,5 +1,5 @@
 # ════════════════════════════════════════
-# STAGE 1 – Builder: build Next.js
+# STAGE 1 – Builder
 # ════════════════════════════════════════
 FROM node:20-alpine AS builder
 
@@ -10,60 +10,69 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 
 COPY . .
-# Đảm bảo thư mục public tồn tại dù repo chỉ có .gitkeep hoặc rỗng
 RUN mkdir -p /app/public
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 # ════════════════════════════════════════
-# STAGE 2 – Runner: runtime với g++ + ccache + PCH
+# STAGE 2 – Runner: g++ + ccache + PCH
 # ════════════════════════════════════════
 FROM node:20-alpine AS runner
 
 WORKDIR /app
 
-# build-base = g++, ccache = cache compiler output
 RUN apk add --no-cache build-base ccache
 
-# ── Precompile Headers (PCH) ──────────────────────────
-# Tìm bits/stdc++.h và precompile cho cả 2 chế độ.
-# g++ sẽ tự dùng .gch nếu flags khớp → parse headers ~0ms.
+# ── Precompile Headers (PCH) ──────────────────────────────────────────────────
 RUN set -e; \
-    GCC_VER=$(g++ -dumpversion | cut -d. -f1); \
     BITS=$(find /usr/include/c++ -name "stdc++.h" -path "*/bits/*" 2>/dev/null | head -1); \
     if [ -n "$BITS" ]; then \
         echo "Precompiling PCH from: $BITS"; \
-        # Fast mode: O0 (default)
         g++ -std=c++20 -O0 -pipe -x c++-header "$BITS" -o "${BITS}.gch_fast"; \
-        # Optimize mode: O2
-        g++ -std=c++20 -O2 -pipe -x c++-header "$BITS" -o "${BITS}.gch_opt"; \
-        # Symlink mặc định → fast (đổi lúc runtime qua env)
+        g++ -std=c++20 -O2 -pipe -x c++-header "$BITS" -o "${BITS}.gch_opt";  \
         ln -sf "${BITS}.gch_fast" "${BITS}.gch"; \
-        echo "PCH ready: $(ls -lh ${BITS}.gch*)"; \
+        echo "PCH ready"; \
     else \
-        echo "WARNING: bits/stdc++.h not found, skipping PCH"; \
+        echo "WARNING: bits/stdc++.h not found"; \
     fi
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
-
-# ccache: lưu cache trong /tmp/ccache (tmpfs → nhanh nhất)
 ENV CCACHE_DIR=/tmp/ccache
 ENV CCACHE_MAXSIZE=512M
 ENV CCACHE_COMPRESS=1
-# Wrap g++ bằng ccache qua PATH
 ENV PATH=/usr/lib/ccache:$PATH
 
 RUN addgroup --system --gid 1001 nodejs \
  && adduser  --system --uid 1001 nextjs
 
-COPY --from=builder --chown=nextjs:nodejs /app/public    ./public
+# Copy standalone Next.js build
+COPY --from=builder --chown=nextjs:nodejs /app/public         ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static     ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static   ./.next/static
 
-# ccache dir phải writable bởi nextjs user
+# Socket.io không được trace tự động → copy thủ công
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/socket.io      ./node_modules/socket.io
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/engine.io      ./node_modules/engine.io
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/ws             ./node_modules/ws
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@socket.io     ./node_modules/@socket.io
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/socket.io-adapter ./node_modules/socket.io-adapter
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/socket.io-parser  ./node_modules/socket.io-parser
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/engine.io-parser  ./node_modules/engine.io-parser
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/accepts        ./node_modules/accepts
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/base64id       ./node_modules/base64id
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/cors           ./node_modules/cors
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/debug          ./node_modules/debug
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/ms             ./node_modules/ms
+
+# Override standalone server.js với custom server có Socket.IO
+COPY --from=builder --chown=nextjs:nodejs /app/server.js ./server.js
+
+WORKDIR /app
+RUN npm install negotiator accepts socket.io
+
 RUN mkdir -p /tmp/ccache && chown nextjs:nodejs /tmp/ccache
 
 USER nextjs
