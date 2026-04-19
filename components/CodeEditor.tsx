@@ -219,46 +219,67 @@ export default function CodeEditor({ value, onChange, onRun, readOnly = false }:
 
   // ── Fix 1: Mobile virtual keyboard resize ───────────────────────────────
   useEffect(() => {
-    const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+    if (typeof window === 'undefined') return;
+    const vv = window.visualViewport;
     if (!vv) return;
     let rafId = 0;
 
+    // Reset về CSS tự nhiên (flex fill) khi bàn phím đóng
+    const resetHeight = () => {
+      const container = containerRef.current;
+      if (container) container.style.height = '';
+      editorRef.current?.layout();
+    };
+
+    // Một handler duy nhất cho cả mở lẫn đóng bàn phím
+    // → tránh race condition giữa nhiều listener dùng chung rafId
     const onViewportChange = () => {
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
         const container = containerRef.current;
         if (!container) return;
-        const rect      = container.getBoundingClientRect();
-        const available = vv.offsetTop + vv.height - (rect.top + vv.offsetTop) - 4;
-        if (available > 60) container.style.height = `${available}px`;
-        const editor = editorRef.current;
-        if (editor) {
-          editor.layout();
-          const pos = editor.getPosition();
-          if (pos) editor.revealLineInCenter(pos.lineNumber);
+
+        const keyboardOpen = vv.height < window.innerHeight * 0.75;
+
+        if (keyboardOpen) {
+          // Thu nhỏ editor vừa với phần màn hình còn lại
+          const rect      = container.getBoundingClientRect();
+          const available = vv.height - rect.top - 4;
+          if (available > 60) container.style.height = `${available}px`;
+          const editor = editorRef.current;
+          if (editor) {
+            editor.layout();
+            const pos = editor.getPosition();
+            if (pos) editor.revealLineInCenter(pos.lineNumber);
+          }
+        } else {
+          // Bàn phím đóng → restore về 100% flex
+          resetHeight();
         }
       });
     };
 
-    const onViewportClose = () => {
-      cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => {
-        const container = containerRef.current;
-        if (container) container.style.height = '';
-        editorRef.current?.layout();
-      });
+    // Fallback: focusout — khi focus rời khỏi editor (bàn phím ẩn)
+    // một số browser không trigger visualViewport resize đáng tin cậy
+    const onFocusOut = (e: FocusEvent) => {
+      const container = containerRef.current;
+      if (!container) return;
+      if (!container.contains(e.relatedTarget as Node)) {
+        setTimeout(resetHeight, 150);
+      }
     };
-
-    const checkClose = () => { if (vv.height > window.innerHeight * 0.8) onViewportClose(); };
 
     vv.addEventListener('resize', onViewportChange);
     vv.addEventListener('scroll', onViewportChange);
-    vv.addEventListener('resize', checkClose);
+    window.addEventListener('resize', onViewportChange); // fallback
+    document.addEventListener('focusout', onFocusOut);   // fallback
+
     return () => {
+      cancelAnimationFrame(rafId);
       vv.removeEventListener('resize', onViewportChange);
       vv.removeEventListener('scroll', onViewportChange);
-      vv.removeEventListener('resize', checkClose);
-      cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', onViewportChange);
+      document.removeEventListener('focusout', onFocusOut);
     };
   }, []);
 
