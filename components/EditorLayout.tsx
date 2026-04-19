@@ -65,25 +65,46 @@ export default function EditorLayout({
   const [inputW, setInputW] = useState(0);
 
   // ─── Viewport height (keyboard-safe) ──────────────────────────────────────
-  // Fix: sau khi bàn phím ảo tắt, vùng bị che không còn bị đen nữa
+  // Fix: editor co lại khi bàn phím mở, restore đúng khi bàn phím đóng
   const [viewH, setViewH] = useState<string>('100dvh');
 
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
 
+    let rafId: number;
+
     const update = () => {
-      // offsetTop = phần bị scroll do bàn phím push content lên
-      const h = Math.round(vv.height + vv.offsetTop);
-      setViewH(`${h}px`);
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        // Chỉ dùng vv.height — không cộng offsetTop
+        // vì offsetTop có thể còn giá trị cũ khi bàn phím vừa đóng,
+        // khiến height bị tính sai và không restore về trạng thái ban đầu.
+        setViewH(`${Math.round(vv.height)}px`);
+      });
     };
 
+    // visualViewport resize/scroll: bắt sự kiện bàn phím mở/đóng
     vv.addEventListener('resize', update);
     vv.addEventListener('scroll', update);
+
+    // Fallback: window resize — một số browser không trigger
+    // visualViewport.resize đáng tin cậy khi bàn phím ẩn
+    window.addEventListener('resize', update);
+
+    // Fallback cuối: focusout với delay nhỏ để đợi viewport ổn định
+    const onFocusOut = () => {
+      setTimeout(update, 100);
+    };
+    document.addEventListener('focusout', onFocusOut);
+
     update();
     return () => {
+      cancelAnimationFrame(rafId);
       vv.removeEventListener('resize', update);
       vv.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+      document.removeEventListener('focusout', onFocusOut);
     };
   }, []);
 
