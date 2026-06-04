@@ -2,20 +2,22 @@
 
 /**
  * components/ShareButton.tsx
- * Nén {code, input} bằng fflate → tạo URL /s/[base64url] → copy clipboard.
+ * Nén {code, input, testCases} bằng fflate → tạo URL /s/[base64url] → copy clipboard.
  */
 
 import { useState } from 'react';
 import { Share2, Copy, Check, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { SHARE_WARN_BYTES, formatBytes } from '@/lib/utils';
+import { type TestCase, serializeTestCases } from '@/lib/testcases';
 
 interface ShareButtonProps {
-  code:  string;
-  input: string;
+  code:       string;
+  input:      string;
+  testCases?: TestCase[];
 }
 
-export default function ShareButton({ code, input }: ShareButtonProps) {
+export default function ShareButton({ code, input, testCases }: ShareButtonProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [shareUrl,     setShareUrl]     = useState<string | null>(null);
   const [copied,       setCopied]       = useState(false);
@@ -23,7 +25,11 @@ export default function ShareButton({ code, input }: ShareButtonProps) {
   const handleShare = async () => {
     if (isGenerating) return;
 
-    const payload      = JSON.stringify({ code, input });
+    const saved = serializeTestCases(
+      testCases ?? [{ id: '', label: 'Test 1', input, expectedOutput: '', output: null, error: null, status: 'idle', runtime: 0 }]
+    );
+
+    const payload      = JSON.stringify({ code, input, testCases: saved });
     const payloadBytes = new TextEncoder().encode(payload).length;
 
     if (payloadBytes > SHARE_WARN_BYTES) {

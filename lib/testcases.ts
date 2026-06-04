@@ -52,3 +52,38 @@ export function compareOutput(actual: string, expected: string): boolean {
 export const DEFAULT_TEST_CASES: TestCase[] = [
   { ...createTestCase('Test 1'), input: '' },
 ];
+
+// ─── Serialisation helpers (for URL sharing + autosave) ──────────────────────
+
+/** Minimal shape saved to URL / localStorage — no runtime fields */
+export interface SavedTestCase {
+  id:             string;
+  label:          string;
+  input:          string;
+  expectedOutput: string;
+}
+
+/** Strip runtime fields before serialising */
+export function serializeTestCases(tcs: TestCase[]): SavedTestCase[] {
+  return tcs.map(({ id, label, input, expectedOutput }) => ({
+    id, label, input, expectedOutput,
+  }));
+}
+
+/** Restore from saved form, initialising runtime fields to idle */
+export function deserializeTestCases(saved: unknown): TestCase[] {
+  if (!Array.isArray(saved) || saved.length === 0) return DEFAULT_TEST_CASES;
+  const restored = (saved as SavedTestCase[])
+    .filter((s) => s && typeof s.id === 'string')
+    .map((s): TestCase => ({
+      id:             s.id,
+      label:          typeof s.label          === 'string' ? s.label          : 'Test case',
+      input:          typeof s.input          === 'string' ? s.input          : '',
+      expectedOutput: typeof s.expectedOutput === 'string' ? s.expectedOutput : '',
+      output:  null,
+      error:   null,
+      status:  'idle',
+      runtime: 0,
+    }));
+  return restored.length > 0 ? restored : DEFAULT_TEST_CASES;
+}

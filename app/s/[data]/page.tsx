@@ -7,6 +7,7 @@
 import { use, useEffect, useState } from 'react';
 import { Loader2, AlertTriangle, Home } from 'lucide-react';
 import EditorLayout from '@/components/EditorLayout';
+import { type SavedTestCase } from '@/lib/testcases';
 
 interface PageProps {
   params: Promise<{ data: string }>;
@@ -14,8 +15,9 @@ interface PageProps {
 
 export default function SharePage({ params }: PageProps) {
   const { data } = use(params);
-  const [initialCode, setInitialCode] = useState<string | undefined>(undefined);
-  const [initialInput, setInitialInput] = useState<string | undefined>(undefined);
+  const [initialCode,       setInitialCode]       = useState<string | undefined>(undefined);
+  const [initialInput,      setInitialInput]      = useState<string | undefined>(undefined);
+  const [initialTestCases,  setInitialTestCases]  = useState<SavedTestCase[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [isDecoding, setIsDecoding] = useState(true);
 
@@ -29,8 +31,18 @@ export default function SharePage({ params }: PageProps) {
         const parsed = JSON.parse(json);
         if (typeof parsed !== 'object' || parsed === null)
           throw new Error('Dữ liệu không đúng định dạng');
+
         setInitialCode(typeof parsed.code === 'string' ? parsed.code : '');
-        setInitialInput(typeof parsed.input === 'string' ? parsed.input : '');
+
+        if (Array.isArray(parsed.testCases) && parsed.testCases.length > 0) {
+          // New format: full test cases saved
+          setInitialTestCases(parsed.testCases as SavedTestCase[]);
+          // Also set initialInput from first test case for backwards compat
+          setInitialInput(parsed.testCases[0]?.input ?? '');
+        } else {
+          // Old format: only a single input was saved
+          setInitialInput(typeof parsed.input === 'string' ? parsed.input : '');
+        }
       } catch (err) {
         console.error('[SharePage] Decode error:', err);
         setError('Không thể giải mã link. Link có thể đã hỏng hoặc không hợp lệ.');
@@ -63,5 +75,12 @@ export default function SharePage({ params }: PageProps) {
     </div>
   );
 
-  return <EditorLayout initialCode={initialCode} initialInput={initialInput} isSharedView />;
+  return (
+    <EditorLayout
+      initialCode={initialCode}
+      initialInput={initialInput}
+      initialTestCases={initialTestCases}
+      isSharedView
+    />
+  );
 }

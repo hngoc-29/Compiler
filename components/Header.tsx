@@ -14,6 +14,7 @@ import {
 import ShareButton from './ShareButton';
 import { downloadTextFile } from '@/lib/utils';
 import { toast } from 'sonner';
+import { type TestCase } from '@/lib/testcases';
 
 export interface PanelVisibility {
   code:   boolean;
@@ -41,6 +42,7 @@ interface HeaderProps {
   /** Open settings panel */
   onOpenSettings?:  () => void;
   minimal?:         boolean;
+  testCases?:       TestCase[];
 }
 
 export default function Header({
@@ -52,6 +54,7 @@ export default function Header({
   inputHasContent = false,
   minimal = false,
   onOpenSettings,
+  testCases,
 }: HeaderProps) {
   const [exportOpen, setExportOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
@@ -124,7 +127,7 @@ export default function Header({
             </div>
           )}
         </div>
-        <ShareButton code={code} input={input}/>
+        <ShareButton code={code} input={input} testCases={testCases}/>
         {onOpenSettings && (
           <button onClick={onOpenSettings} title="Editor Settings"
             className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-700/60 hover:bg-gray-600/60 text-gray-300 text-xs font-medium rounded-md transition-colors border border-gray-700/50">
@@ -253,7 +256,7 @@ export default function Header({
         </div>
 
         {/* Share */}
-        <ShareButton code={code} input={input}/>
+        <ShareButton code={code} input={input} testCases={testCases}/>
 
         {/* Settings */}
         {onOpenSettings && (

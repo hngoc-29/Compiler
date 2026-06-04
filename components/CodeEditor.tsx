@@ -52,6 +52,15 @@ function setupMobileInteractions(editor: any, onSelectionChange?: (text: string 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let latestSelection: any = null;
 
+  // Guard: don't clear selection when focus moves to an external button (e.g. Copy btn)
+  let justBlurred = false;
+  let blurClearTimer: ReturnType<typeof setTimeout> | null = null;
+  editor.onDidBlurEditorText(() => {
+    justBlurred = true;
+    if (blurClearTimer) clearTimeout(blurClearTimer);
+    blurClearTimer = setTimeout(() => { justBlurred = false; }, 300);
+  });
+
   editor.onDidChangeCursorSelection((e: any) => {
     latestSelection = e.selection;
     if (!e.selection.isEmpty()) {
@@ -60,12 +69,16 @@ function setupMobileInteractions(editor: any, onSelectionChange?: (text: string 
         const model = editor.getModel();
         onSelectionChange(model ? model.getValueInRange(e.selection) : null);
       }
-    } else {
+    } else if (!justBlurred) {
+      // Only clear when selection is lost via user action inside the editor,
+      // NOT when editor lost focus to the Copy button or another external element
       onSelectionChange?.(null);
     }
   });
 
   editor.onDidFocusEditorWidget(() => {
+    justBlurred = false;
+    if (blurClearTimer) { clearTimeout(blurClearTimer); blurClearTimer = null; }
     setTimeout(() => {
       const cur = editor.getSelection();
       if (savedSelection && cur && cur.isEmpty() && !savedSelection.isEmpty()) {
@@ -169,6 +182,8 @@ export default function CodeEditor({
   const [isTouch,      setIsTouch]      = useState(false);
   const [mobileSelText, setMobileSelText] = useState<string | null>(null);
   const [copyDone,     setCopyDone]     = useState(false);
+  // Ref holds the latest selected text — never stale, immune to re-render timing
+  const mobileSelRef = useRef<string | null>(null);
 
   const handleUndo = useCallback(() => {
     editorRef.current?.trigger('toolbar', 'undo', null);
@@ -296,14 +311,16 @@ export default function CodeEditor({
   }, []);
 
   const handleCopySel = useCallback(async () => {
-    if (!mobileSelText) return;
+    const text = mobileSelRef.current; // Always fresh — ref, not state closure
+    if (!text) return;
     try {
-      await navigator.clipboard.writeText(mobileSelText);
+      await navigator.clipboard.writeText(text);
+      mobileSelRef.current = null;
       setCopyDone(true);
-      setMobileSelText(null); // Clear the selection highlight after copy
+      setMobileSelText(null);
       setTimeout(() => setCopyDone(false), 1500);
     } catch { /* clipboard permission denied */ }
-  }, [mobileSelText]);
+  }, []); // No mobileSelText dep — reads ref instead
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleMount = (editor: any, monaco: any) => {
@@ -320,7 +337,10 @@ export default function CodeEditor({
       });
     }
 
-    setupMobileInteractions(editor, (text) => setMobileSelText(text));
+    setupMobileInteractions(editor, (text) => {
+      mobileSelRef.current = text;   // Ref updated synchronously — always fresh
+      setMobileSelText(text);        // State updated for rendering
+    });
 
     const trackUndoRedo = () => {
       try {
@@ -379,6 +399,7 @@ export default function CodeEditor({
             mobileSelText ? (
               /* Copy selection — appears when text is selected via long-press */
               <button
+                onPointerDown={(e) => e.preventDefault()} // Keep editor focused — selection stays intact
                 onClick={handleCopySel}
                 title="Copy vùng đã chọn"
                 style={{
@@ -402,6 +423,7 @@ export default function CodeEditor({
             ) : (
               /* Copy All — always visible on touch, copies entire editor content */
               <button
+                onPointerDown={(e) => e.preventDefault()} // Keep editor focused
                 onClick={handleCopyAll}
                 title="Copy toàn bộ code"
                 style={{

@@ -28,25 +28,31 @@ import {
   debounce, AUTOSAVE_KEY, clamp,
 } from '@/lib/utils';
 import { getLangById, DEFAULT_LANG_ID } from '@/lib/languages';
-import { DEFAULT_TEST_CASES, type TestCase, createTestCase, compareOutput } from '@/lib/testcases';
+import { DEFAULT_TEST_CASES, type TestCase, type SavedTestCase, createTestCase, compareOutput, serializeTestCases, deserializeTestCases } from '@/lib/testcases';
 import { parseGppDiagnostics, type Diagnostic } from '@/lib/cpp-suggestions';
 import { loadSettings, saveSettings, type EditorSettings } from '@/lib/editor-settings';
+import { loadPrefs,   savePrefs                            } from '@/lib/user-prefs';
 import { Copy, Check, Loader2, Code2, AlignLeft, ClipboardList, MonitorDot, Play, Zap, Gauge, Settings2 } from 'lucide-react';
 
 const MIN_PX = 120;
 
 interface EditorLayoutProps {
-  initialCode?:  string;
-  initialInput?: string;
+  initialCode?:       string;
+  initialInput?:      string;
+  initialTestCases?:  SavedTestCase[];
   isSharedView?: boolean;
 }
 
 export default function EditorLayout({
-  initialCode, initialInput, isSharedView = false,
+  initialCode, initialInput, initialTestCases, isSharedView = false,
 }: EditorLayoutProps) {
 
+  // ─── User preferences (lang, optimize, panels, activeTab) ──────────────────
+  // Loaded once at mount; individual state setters persist on every change.
+  const _prefs = useState(loadPrefs)[0];
+
   // ─── Language ────────────────────────────────────────────────────────────
-  const [langId,   setLangId]   = useState(DEFAULT_LANG_ID);
+  const [langId,   setLangId]   = useState(_prefs.langId);
   const lang = getLangById(langId);
 
   // ─── Content ─────────────────────────────────────────────────────────────
@@ -54,7 +60,7 @@ export default function EditorLayout({
   const [output, setOutput]       = useState<CompileResult | null>(null);
   const [isCompiling, setIsCompiling] = useState(false);
   const [isReady,  setIsReady]  = useState(false);
-  const [optimize, setOptimize] = useState(false);
+  const [optimize, setOptimize] = useState(_prefs.optimize);
   const [streamStdout, setStreamStdout] = useState('');
 
   // ─── Diagnostics (from last compile error → Monaco markers) ──────────────
@@ -70,10 +76,12 @@ export default function EditorLayout({
   };
 
   // ─── Test cases ──────────────────────────────────────────────────────────
-  const [testCases, setTestCases]     = useState<TestCase[]>(DEFAULT_TEST_CASES);
+  const [testCases, setTestCases]     = useState<TestCase[]>(
+    initialTestCases ? deserializeTestCases(initialTestCases) : DEFAULT_TEST_CASES
+  );
   const [isRunningAll, setIsRunningAll] = useState(false);
   const [runningTcId, setRunningTcId]   = useState<string | null>(null);
-  const [activeTab, setActiveTab]       = useState<'single' | 'testcases'>('single');
+  const [activeTab, setActiveTab]       = useState<'single' | 'testcases'>(_prefs.activeTab);
 
   // Single-run input (for backward compat with single tab)
   const singleInput = testCases[0]?.input ?? '';
@@ -82,9 +90,7 @@ export default function EditorLayout({
   };
 
   // ─── Panel visibility ────────────────────────────────────────────────────
-  const [panels, setPanels] = useState<PanelVisibility>({
-    code: true, input: true, output: true,
-  });
+  const [panels, setPanels] = useState<PanelVisibility>(_prefs.panels);
 
   // ─── Mobile ──────────────────────────────────────────────────────────────
   const [isMobile, setIsMobile] = useState(false);
@@ -141,6 +147,8 @@ export default function EditorLayout({
     setPanels(prev => {
       const next = { ...prev, [key]: !prev[key] };
       if (!Object.values(next).some(Boolean)) return prev;
+      // Persist panel visibility
+      savePrefs({ ...loadPrefs(), panels: next });
       return next;
     });
   }, []);
@@ -163,10 +171,15 @@ export default function EditorLayout({
   // ─── Auto-save ────────────────────────────────────────────────────────────
   const autoSaveFn = useRef<ReturnType<typeof debounce> | null>(null);
   useEffect(() => {
-    autoSaveFn.current = debounce(async (c: string, inp: string) => {
+    autoSaveFn.current = debounce(async (c: string, tcs: TestCase[]) => {
       try {
         const { compressToBase64Url } = await import('@/lib/compress');
-        const compressed = await compressToBase64Url(JSON.stringify({ code: c, input: inp }));
+        const payload = JSON.stringify({
+          code: c,
+          input: tcs[0]?.input ?? '',          // keep for backwards compat
+          testCases: serializeTestCases(tcs),
+        });
+        const compressed = await compressToBase64Url(payload);
         localStorage.setItem(AUTOSAVE_KEY, compressed);
       } catch (err) { console.warn('[AutoSave]', err); }
     }, 800) as unknown as ReturnType<typeof debounce>;
@@ -174,11 +187,16 @@ export default function EditorLayout({
 
   useEffect(() => {
     if (!isReady) return;
-    autoSaveFn.current?.(code, singleInput);
-  }, [code, singleInput, isReady]);
+    autoSaveFn.current?.(code, testCases);
+  }, [code, testCases, isReady]);
 
   useEffect(() => {
-    if (initialCode !== undefined || initialInput !== undefined) {
+    if (initialCode !== undefined || initialInput !== undefined || initialTestCases !== undefined) {
+      // Shared view: initialTestCases already applied via useState initialiser.
+      // Apply initialInput only as backwards-compat fallback (old links without testCases).
+      if (initialInput !== undefined && initialTestCases === undefined) {
+        setSingleInput(initialInput);
+      }
       setIsReady(true); return;
     }
     (async () => {
@@ -187,8 +205,14 @@ export default function EditorLayout({
       try {
         const { decompressFromBase64Url } = await import('@/lib/compress');
         const parsed = JSON.parse(await decompressFromBase64Url(saved));
-        if (parsed?.code  !== undefined) setCode(parsed.code);
-        if (parsed?.input !== undefined) setSingleInput(parsed.input);
+        if (parsed?.code !== undefined) setCode(parsed.code);
+        if (Array.isArray(parsed?.testCases)) {
+          // New format: restore full test cases
+          setTestCases(deserializeTestCases(parsed.testCases));
+        } else if (parsed?.input !== undefined) {
+          // Old format: only had a single input
+          setSingleInput(parsed.input);
+        }
       } catch { localStorage.removeItem(AUTOSAVE_KEY); }
       finally  { setIsReady(true); }
     })();
@@ -205,6 +229,8 @@ export default function EditorLayout({
     }
     setDiagnostics([]);
     setOutput(null);
+    // Persist language choice
+    savePrefs({ ...loadPrefs(), langId: newId });
   }, [langId, code]);
 
   // ─── Socket.IO ────────────────────────────────────────────────────────────
@@ -571,7 +597,7 @@ export default function EditorLayout({
           <div className="flex-1" />
           {/* Optimize toggle */}
           <button
-            onClick={() => setOptimize(v => !v)}
+            onClick={() => { setOptimize(v => { const next = !v; savePrefs({ ...loadPrefs(), optimize: next }); return next; }); }}
             title={optimize ? 'O2 — nhấn để tắt' : 'Fast (-O0) — nhấn để bật O2'}
             className="flex items-center justify-center rounded-md transition-colors"
             style={{
@@ -605,13 +631,13 @@ export default function EditorLayout({
           <div className="flex items-center gap-1 flex-1 justify-center">
             <div className="flex items-center gap-1 bg-gray-800/50 rounded-lg p-0.5">
               <button
-                onClick={() => setActiveTab('single')}
+                onClick={() => { setActiveTab('single'); savePrefs({ ...loadPrefs(), activeTab: 'single' }); }}
                 className={`px-3 py-1 text-[11px] rounded-md transition-colors font-medium ${
                   activeTab === 'single' ? 'bg-gray-700 text-gray-100' : 'text-gray-500 hover:text-gray-300'
                 }`}
               >Single Run</button>
               <button
-                onClick={() => setActiveTab('testcases')}
+                onClick={() => { setActiveTab('testcases'); savePrefs({ ...loadPrefs(), activeTab: 'testcases' }); }}
                 className={`px-3 py-1 text-[11px] rounded-md transition-colors font-medium flex items-center gap-1 ${
                   activeTab === 'testcases' ? 'bg-gray-700 text-gray-100' : 'text-gray-500 hover:text-gray-300'
                 }`}
@@ -626,11 +652,12 @@ export default function EditorLayout({
             isCompiling={isCompiling || isRunningAll}
             onRun={activeTab === 'testcases' ? handleRunAll : handleRun}
             panels={panels} onTogglePanel={handleTogglePanel}
-            optimize={optimize} onToggleOptimize={() => setOptimize(v => !v)}
+            optimize={optimize} onToggleOptimize={() => { setOptimize(v => { const next = !v; savePrefs({ ...loadPrefs(), optimize: next }); return next; }); }}
             isSharedView={isSharedView}
             inputHasContent={singleInput.trim().length > 0}
             minimal={true}
             onOpenSettings={() => setSettingsOpen(true)}
+            testCases={testCases}
           />
         </header>
       )}
