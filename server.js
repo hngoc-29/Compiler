@@ -28,6 +28,16 @@ const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;  // 2 MB
 const COMPILE_TIMEOUT  = 30_000;            // 30 s
 const RUN_TIMEOUT      = 10_000;            // 10 s
 
+// ─── Language map (mirrors lib/languages.ts) ──────────────────────────────────
+const LANG_MAP = {
+  cpp20:   { ext: 'cpp', compiler: 'g++',     stdFlag: '-std=c++20', extraLibs: [] },
+  cpp17:   { ext: 'cpp', compiler: 'g++',     stdFlag: '-std=c++17', extraLibs: [] },
+  cpp14:   { ext: 'cpp', compiler: 'g++',     stdFlag: '-std=c++14', extraLibs: [] },
+  cpp11:   { ext: 'cpp', compiler: 'g++',     stdFlag: '-std=c++11', extraLibs: [] },
+  c11:     { ext: 'c',   compiler: 'gcc',     stdFlag: '-std=c11',   extraLibs: ['-lm'] },
+  python3: { ext: 'py',  compiler: 'python3', stdFlag: null,         extraLibs: [] },
+};
+
 // ─── Process runner (with optional streaming callbacks) ───────────────────────
 function runProcess(cmd, args, stdinData, timeoutMs, onStdout, onStderr) {
   return new Promise((resolve) => {
@@ -74,24 +84,50 @@ function runProcess(cmd, args, stdinData, timeoutMs, onStdout, onStderr) {
 }
 
 // ─── Compile + run with streaming ─────────────────────────────────────────────
-async function compileAndRunStream(code, input, timeoutMs, optimize, callbacks) {
+async function compileAndRunStream(code, input, timeoutMs, optimize, langId, callbacks) {
+  const lang    = LANG_MAP[langId] ?? LANG_MAP['cpp20'];
   const id      = randomUUID();
   const tmpDir  = os.tmpdir();
-  const srcFile = join(tmpDir, `cppeditor_${id}.cpp`);
+  const srcFile = join(tmpDir, `cppeditor_${id}.${lang.ext}`);
   const binFile = join(tmpDir, `cppeditor_${id}.out`);
-
-  const optFlag = optimize ? '-O2' : '-O0';
-  const gppArgs = [
-    '-std=c++20', optFlag, '-pipe',
-    '-Wall', '-Wextra',
-    '-o', binFile, srcFile,
-  ];
 
   try {
     await writeFile(srcFile, code, { encoding: 'utf-8', mode: 0o644 });
 
+    // ── Python: no compile step ───────────────────────────────────────────
+    if (lang.compiler === 'python3') {
+      callbacks.onStatus?.('running');
+      const t0     = Date.now();
+      const runRes = await runProcess(
+        'python3', [srcFile], input, timeoutMs,
+        callbacks.onStdout,
+        callbacks.onStderr,
+      );
+      const runtime = Date.now() - t0;
+      callbacks.onDone?.({
+        stdout:       runRes.stdout,
+        stderr:       runRes.stderr,
+        compileError: runRes.exitCode !== 0 && !runRes.timedOut && !runRes.stdout
+          ? runRes.stderr
+          : null,
+        exitCode:     runRes.exitCode,
+        runtime,
+        timedOut:     runRes.timedOut,
+      });
+      return;
+    }
+
+    // ── C / C++: compile then run ─────────────────────────────────────────
+    const optFlag  = optimize ? '-O2' : '-O0';
+    const compArgs = [
+      lang.stdFlag, optFlag, '-pipe',
+      '-Wall', '-Wextra',
+      ...lang.extraLibs,
+      '-o', binFile, srcFile,
+    ];
+
     callbacks.onStatus?.('compiling');
-    const compileRes = await runProcess('g++', gppArgs, '', COMPILE_TIMEOUT);
+    const compileRes = await runProcess(lang.compiler, compArgs, '', COMPILE_TIMEOUT);
 
     if (compileRes.exitCode !== 0) {
       callbacks.onDone?.({
@@ -153,7 +189,7 @@ app.prepare().then(() => {
         return;
       }
 
-      const { code, input = '', optimize = false } = data ?? {};
+      const { code, input = '', optimize = false, langId = 'cpp20' } = data ?? {};
 
       if (typeof code !== 'string' || !code.trim()) {
         socket.emit('compile:error', { message: 'Code không hợp lệ' });
@@ -173,6 +209,7 @@ app.prepare().then(() => {
           typeof input === 'string' ? input : '',
           RUN_TIMEOUT,
           optimize === true,
+          typeof langId === 'string' && langId in LANG_MAP ? langId : 'cpp20',
           {
             onStatus:  (s)     => socket.emit('compile:status',  s),
             onStdout:  (chunk) => socket.emit('compile:stdout',  chunk),
@@ -184,6 +221,117 @@ app.prepare().then(() => {
         socket.emit('compile:error', { message: String(err) });
       } finally {
         isCompiling = false;
+      }
+    });
+
+    // ── compile:batch — compile ONCE, run with each input, stream results ───────
+    // Protocol:
+    //   client → compile:batch  { code, inputs: string[], optimize, langId }
+    //   server → compile:batch:status  'compiling' | 'running'
+    //   server → compile:batch:error   { stderr }          (compile failed → stop)
+    //   server → compile:batch:result  { index, stdout, stderr, exitCode, runtime, timedOut }
+    //   server → compile:batch:done    { total }
+    socket.on('compile:batch', async (data) => {
+      if (isCompiling) {
+        socket.emit('compile:error', { message: 'Đang compile rồi, chờ tí!' });
+        return;
+      }
+
+      const { code, inputs = [''], optimize = false, langId = 'cpp20' } = data ?? {};
+
+      if (typeof code !== 'string' || !code.trim()) {
+        socket.emit('compile:error', { message: 'Code không hợp lệ' });
+        return;
+      }
+      if (!Array.isArray(inputs) || inputs.length === 0) {
+        socket.emit('compile:error', { message: 'inputs phải là mảng không rỗng' });
+        return;
+      }
+      if (Buffer.byteLength(code, 'utf-8') > 100 * 1024) {
+        socket.emit('compile:error', { message: 'Code quá lớn (tối đa 100KB)' });
+        return;
+      }
+
+      isCompiling = true;
+
+      const resolvedLangId = typeof langId === 'string' && langId in LANG_MAP ? langId : 'cpp20';
+      const lang    = LANG_MAP[resolvedLangId];
+      const id      = randomUUID();
+      const tmpDir  = os.tmpdir();
+      const srcFile = join(tmpDir, `cppeditor_${id}.${lang.ext}`);
+      const binFile = join(tmpDir, `cppeditor_${id}.out`);
+
+      try {
+        await writeFile(srcFile, code, { encoding: 'utf-8', mode: 0o644 });
+
+        // ── Python: không có bước compile, chạy thẳng N lần ─────────────────
+        if (lang.compiler === 'python3') {
+          socket.emit('compile:batch:status', 'running');
+
+          for (let i = 0; i < inputs.length; i++) {
+            const input = typeof inputs[i] === 'string' ? inputs[i] : '';
+            const t0    = Date.now();
+            const res   = await runProcess('python3', [srcFile], input, RUN_TIMEOUT);
+            socket.emit('compile:batch:result', {
+              index:    i,
+              stdout:   res.stdout,
+              stderr:   res.stderr,
+              exitCode: res.exitCode,
+              runtime:  Date.now() - t0,
+              timedOut: res.timedOut,
+            });
+          }
+
+          socket.emit('compile:batch:done', { total: inputs.length });
+          return;
+        }
+
+        // ── C / C++: compile 1 lần ───────────────────────────────────────────
+        const optFlag  = optimize ? '-O2' : '-O0';
+        const compArgs = [
+          lang.stdFlag, optFlag, '-pipe', '-Wall', '-Wextra',
+          ...lang.extraLibs,
+          '-o', binFile, srcFile,
+        ];
+
+        socket.emit('compile:batch:status', 'compiling');
+        const compileRes = await runProcess(lang.compiler, compArgs, '', COMPILE_TIMEOUT);
+
+        if (compileRes.exitCode !== 0) {
+          socket.emit('compile:batch:error', {
+            stderr:   compileRes.stderr || 'Compilation failed',
+            exitCode: compileRes.exitCode,
+          });
+          return;
+        }
+
+        // ── Chạy N lần với từng input ────────────────────────────────────────
+        socket.emit('compile:batch:status', 'running');
+
+        for (let i = 0; i < inputs.length; i++) {
+          const input = typeof inputs[i] === 'string' ? inputs[i] : '';
+          const t0    = Date.now();
+          const res   = await runProcess(binFile, [], input, RUN_TIMEOUT);
+          socket.emit('compile:batch:result', {
+            index:    i,
+            stdout:   res.stdout,
+            stderr:   res.stderr,
+            exitCode: res.exitCode,
+            runtime:  Date.now() - t0,
+            timedOut: res.timedOut,
+          });
+        }
+
+        socket.emit('compile:batch:done', { total: inputs.length });
+
+      } catch (err) {
+        socket.emit('compile:error', { message: String(err) });
+      } finally {
+        isCompiling = false;
+        await Promise.allSettled([
+          unlink(srcFile).catch(() => {}),
+          unlink(binFile).catch(() => {}),
+        ]);
       }
     });
   });

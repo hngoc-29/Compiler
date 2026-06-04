@@ -1,162 +1,210 @@
-# CppEditor – C++ Online Compiler
+# ⚡ CodeEditor
 
-Trình soạn thảo C++ online với **3 pane có thể resize/toggle**, compiler thật (`g++`),
-và share link bằng **fflate** compression (không cần database).
-
-## 🗜️ Tại sao URL ngắn với LZMA level 9?
-
-| Thuật toán | Nén code C++ ~1KB | Ghi chú |
-|---|---|---|
-| Không nén | ~1400 chars | base64url thuần |
-| Deflate (fflate) | ~680 chars | nén ~50% |
-| **LZMA level 9** | **~520 chars** | **nén ~63%**, ngắn hơn deflate ~24% |
-
-LZMA dùng dictionary size 64MB và back-reference dài hơn, đặc biệt hiệu quả với source code C++ vì có nhiều keyword lặp lại (`int`, `std::`, `cout`, `return`).
+Trình biên dịch code online hỗ trợ **C++**, **C** và **Python**, chạy trực tiếp trên server qua Socket.IO streaming. Giao diện Monaco Editor, tối ưu cho cả desktop lẫn mobile.
 
 ---
 
+## Tính năng
 
-
-| Tính năng | Chi tiết |
+| Tính năng | Mô tả |
 |---|---|
-| Monaco Editor | C++ syntax, autocomplete, Ctrl+Enter to Run |
-| Compiler thật | `g++ -std=c++20 -O2` trong Docker |
-| 3 pane resize | Kéo divider để thay đổi kích thước từng pane |
-| Toggle panel | Ẩn/hiện từng pane (main.cpp / input.txt / output) |
-| Share link | Nén fflate → base64url → URL `/s/[data]` |
-| Auto-save | Debounce 800ms, nén fflate, lưu localStorage |
-| Export | Tải main.cpp / input.txt / output.txt (đổi tên trước khi tải) |
-| Dark mode | Mặc định, không cần cấu hình |
-| Mobile | Responsive, stack dọc trên màn nhỏ |
+| **Đa ngôn ngữ** | C++20, C++17, C++14, C++11, C11, Python 3 |
+| **Streaming output** | Kết quả in ra ngay trong khi chạy (qua WebSocket) |
+| **Test Cases** | Nhập nhiều test case, chấm **PASS / FAIL** tự động so sánh expected output |
+| **Monaco Editor** | IntelliSense, C++ snippets, signature hints, syntax highlight |
+| **Mobile-first** | Bottom tab bar (Code / Input / Tests / Output), auto-switch sang output sau khi Run |
+| **Hash cache** | Không compile lại nếu code + input + settings giống lần trước (sessionStorage) |
+| **Share** | Chia sẻ code qua URL (nén bằng fflate, không cần backend) |
+| **Export** | Tải về file `.cpp` / `.py` / `.c` |
+| **Tùy chỉnh editor** | Font size, tab size, minimap, word wrap, ligatures, suggestions... |
 
 ---
 
-## 🚀 Chạy local (Development)
+## Ngôn ngữ hỗ trợ
+
+| ID | Ngôn ngữ | Compiler | Flags |
+|---|---|---|---|
+| `cpp20` | C++ 20 | g++ | `-std=c++20 -Wall -Wextra` |
+| `cpp17` | C++ 17 | g++ | `-std=c++17 -Wall -Wextra` |
+| `cpp14` | C++ 14 | g++ | `-std=c++14 -Wall -Wextra` |
+| `cpp11` | C++ 11 | g++ | `-std=c++11 -Wall -Wextra` |
+| `c11` | C 11 | gcc | `-std=c11 -lm -Wall -Wextra` |
+| `python3` | Python 3 | python3 | *(chạy trực tiếp, không compile)* |
+
+---
+
+## Yêu cầu hệ thống
+
+- **Node.js** >= 20
+- **g++** / **gcc** (build-essential / build-base)
+- **python3**
+- **ccache** *(tùy chọn, tăng tốc compile lại)*
+
+---
+
+## Chạy local (Development)
 
 ```bash
-# Yêu cầu: Node.js 20+, g++ trên máy
+# Cài dependencies
 npm install
+
+# Chạy dev server (Next.js + Socket.IO cùng 1 process)
 npm run dev
-# → http://localhost:3000
+```
+
+Truy cập: [http://localhost:3000](http://localhost:3000)
+
+---
+
+## Chạy Production (không Docker)
+
+```bash
+npm install
+npm run build
+NODE_ENV=production npm start
 ```
 
 ---
 
-## 🐳 Docker
+## Docker
 
-### Build
-
-```bash
-docker build -t cppeditor .
-```
-
-### Chạy
+### Build & chạy
 
 ```bash
-docker run -p 3000:3000 cppeditor
-# → http://localhost:3000
-```
+# Build image
+docker build -t codeeditor .
 
-### Background + tự restart
-
-```bash
+# Chạy container
 docker run -d \
-  --name cppeditor \
+  --name codeeditor \
   -p 3000:3000 \
   --restart unless-stopped \
-  cppeditor
+  codeeditor
 ```
 
-### Logs
+Truy cập: [http://localhost:3000](http://localhost:3000)
+
+### Docker Compose
+
+```yaml
+services:
+  codeeditor:
+    build: .
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+```
 
 ```bash
-docker logs -f cppeditor
+docker compose up -d
+```
+
+### Với Nginx reverse proxy
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    location / {
+        proxy_pass         http://localhost:3000;
+        proxy_http_version 1.1;
+
+        # WebSocket (Socket.IO)
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_read_timeout 60s;
+    }
+}
 ```
 
 ---
 
-## ☁️ Deploy lên Render.com
-
-1. Push code lên GitHub.
-2. Vào [Render Dashboard](https://dashboard.render.com) → **New → Web Service**.
-3. Kết nối GitHub repo.
-4. Cài đặt:
-   - **Environment**: `Docker`
-   - **Dockerfile Path**: `./Dockerfile`
-   - **Port**: `3000`
-5. Click **Deploy** – Render tự build và deploy.
-
-> ⚠️ Free tier sẽ sleep sau 15 phút. Dùng **Starter ($7/tháng)** để không bị sleep.
-
----
-
-## ☁️ Deploy lên Railway
-
-```bash
-npm install -g @railway/cli
-railway login
-railway up
-```
-
-Railway tự detect Dockerfile.
-
----
-
-## 📁 Cấu trúc
+## Cấu trúc project
 
 ```
-cpp-editor/
+.
+├── server.js                  # Custom Next.js server + Socket.IO compiler
 ├── app/
-│   ├── globals.css
+│   ├── page.tsx               # Trang chủ
 │   ├── layout.tsx
-│   ├── page.tsx
-│   ├── s/[data]/page.tsx        ← Share page
-│   └── api/compile/route.ts     ← Compile API
+│   ├── api/compile/route.ts   # HTTP fallback API (khi WebSocket không kết nối được)
+│   └── s/[data]/page.tsx      # Trang shared view
 ├── components/
-│   ├── EditorLayout.tsx          ← 3-pane layout + resize + toggle
-│   ├── ResizableDivider.tsx      ← Drag handle
-│   ├── CodeEditor.tsx            ← Monaco wrapper
-│   ├── InputEditor.tsx           ← Stdin textarea
-│   ├── OutputPanel.tsx           ← Output/Errors/Info tabs
-│   ├── Header.tsx                ← Top bar
-│   └── ShareButton.tsx           ← fflate share
-├── lib/
-│   ├── compress.ts               ← fflate compress/decompress
-│   ├── compiler.ts               ← g++ logic (server-only)
-│   └── utils.ts
-└── Dockerfile                    ← Multi-stage + g++
+│   ├── EditorLayout.tsx       # Layout chính, state management
+│   ├── CodeEditor.tsx         # Monaco Editor wrapper
+│   ├── OutputPanel.tsx        # Tab Output / Errors / Info
+│   ├── TestCasePanel.tsx      # Multiple test cases, PASS/FAIL verdict
+│   ├── TestCaseModal.tsx      # Modal nhập input + expected output
+│   ├── Header.tsx             # Toolbar (Run, Export, Share, Settings)
+│   ├── LanguageSelector.tsx   # Chọn ngôn ngữ / version
+│   └── SettingsPanel.tsx      # Cài đặt editor
+└── lib/
+    ├── languages.ts           # Danh sách ngôn ngữ
+    ├── testcases.ts           # TestCase type, compareOutput, UUID polyfill
+    ├── cpp-suggestions.ts     # C++ IntelliSense completions
+    ├── editor-settings.ts     # EditorSettings type + localStorage
+    ├── compiler.ts            # HTTP compile logic
+    ├── compress.ts            # URL compression (fflate)
+    └── utils.ts               # debounce, formatDuration...
 ```
 
 ---
 
-## ⚙️ Cấu hình
+## Giới hạn runtime
 
-**Timeout compile** (`app/api/compile/route.ts`):
-```ts
-const RUN_TIMEOUT_MS = 10_000; // 10 giây
-```
+| Thông số | Giá trị |
+|---|---|
+| Timeout compile | 30 giây |
+| Timeout chạy | 10 giây |
+| Max output | 2 MB |
+| Max code size | 100 KB |
 
-**g++ flags** (`lib/compiler.ts`):
-```ts
-['-std=c++20', '-O2', '-Wall', '-Wextra', ...]
-```
-
-**Giới hạn kích thước** (`app/api/compile/route.ts`):
-```ts
-const MAX_CODE_BYTES  = 100 * 1024; // 100 KB
-const MAX_INPUT_BYTES = 10  * 1024; // 10 KB
+Chỉnh trong `server.js`:
+```js
+const COMPILE_TIMEOUT = 30_000;  // ms
+const RUN_TIMEOUT     = 10_000;  // ms
+const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 ```
 
 ---
 
-## 🔒 Bảo mật
+## Test Cases — Hướng dẫn chấm điểm
 
-- Code C++ chạy trong Docker container cô lập
-- User `nextjs` không có quyền root
-- Timeout 10s ngăn infinite loop
-- File tạm (`/tmp/*.cpp`, `*.out`) xóa ngay sau khi chạy
-- Không lưu code/input trên server – share data trong URL
+1. Nhấn **Test Cases** tab (desktop) hoặc tab **Tests** (mobile)
+2. Nhấn **Add** để thêm test case
+3. Nhập **stdin/input** và **expected output** trong modal
+4. Nhấn **Run All** — mỗi test case hiện badge:
+   - `PASS` — output khớp expected (trim trailing whitespace)
+   - `FAIL` — output không khớp
+   - `ERR`  — lỗi compile hoặc runtime
+   - `TLE`  — vượt timeout
+
+> **Lưu ý:** Nếu để trống expected output, test case vẫn chạy bình thường nhưng không chấm điểm (chỉ hiện thời gian chạy).
 
 ---
 
-## License: MIT
+## Biến môi trường
+
+| Biến | Default | Mô tả |
+|---|---|---|
+| `PORT` | `3000` | Port lắng nghe |
+| `HOSTNAME` | `0.0.0.0` | Bind address |
+| `NODE_ENV` | `development` | `production` để tắt hot reload |
+| `CCACHE_DIR` | `/tmp/ccache` | Thư mục cache ccache |
+| `CCACHE_MAXSIZE` | `512M` | Dung lượng tối đa cache |
+
+---
+
+## License
+
+MIT

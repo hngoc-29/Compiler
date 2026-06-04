@@ -3,7 +3,7 @@ import { compileAndRun } from '@/lib/compiler';
 
 const MAX_CODE_BYTES  = 100 * 1024;   // 100 KB
 const MAX_INPUT_BYTES = 10  * 1024;   // 10 KB
-const RUN_TIMEOUT_MS  = 10_000;       // 10 giây
+const RUN_TIMEOUT_MS  = 10_000;       // 10s
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,8 +14,8 @@ export async function POST(req: NextRequest) {
     if (typeof body !== 'object' || body === null)
       return NextResponse.json({ error: 'Body phải là JSON object' }, { status: 400 });
 
-    const { code, input = '', optimize = false } = body as {
-      code: unknown; input?: unknown; optimize?: unknown;
+    const { code, input = '', optimize = false, langId = 'cpp20' } = body as {
+      code: unknown; input?: unknown; optimize?: unknown; langId?: unknown;
     };
 
     if (typeof code !== 'string' || code.trim() === '')
@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
     const result = await compileAndRun(
       code, input, RUN_TIMEOUT_MS,
       optimize === true,
+      typeof langId === 'string' ? langId : 'cpp20',
     );
     return NextResponse.json(result, { status: 200 });
 

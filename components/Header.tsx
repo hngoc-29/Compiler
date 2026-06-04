@@ -9,7 +9,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   Play, Loader2, Download, ChevronDown,
   FileCode, FileText, FileOutput, Cpu,
-  PanelLeft, PanelRight, Zap, Gauge, Terminal,
+  PanelLeft, PanelRight, Zap, Gauge, Terminal, Settings2,
 } from 'lucide-react';
 import ShareButton from './ShareButton';
 import { downloadTextFile } from '@/lib/utils';
@@ -38,6 +38,9 @@ interface HeaderProps {
   onOpenInput?:     () => void;
   /** Có nội dung trong input không (để hiển thị dot indicator) */
   inputHasContent?: boolean;
+  /** Open settings panel */
+  onOpenSettings?:  () => void;
+  minimal?:         boolean;
 }
 
 export default function Header({
@@ -47,6 +50,8 @@ export default function Header({
   isSharedView = false,
   onOpenInput,
   inputHasContent = false,
+  minimal = false,
+  onOpenSettings,
 }: HeaderProps) {
   const [exportOpen, setExportOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
@@ -81,6 +86,54 @@ export default function Header({
     { key: 'input',  label: 'input.txt', icon: <FileText   size={12}/> },
     { key: 'output', label: 'output',    icon: <PanelRight size={12}/> },
   ];
+
+  // Minimal mode: just actions (EditorLayout has its own header wrapper)
+  if (minimal) {
+    return (
+      <div className="flex items-center gap-1.5 shrink-0">
+        {onOpenInput && (
+          <button onClick={onOpenInput} className="relative flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-700/60 hover:bg-gray-600/60 text-gray-300 text-xs font-medium rounded-md transition-colors border border-gray-700/50" title="Mở input.txt">
+            <Terminal size={12}/><span>Input</span>
+            {inputHasContent && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-yellow-400"/>}
+          </button>
+        )}
+        <button onClick={onToggleOptimize} title={optimize ? 'O2 mode' : 'Fast mode'}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all border ${optimize ? 'bg-amber-900/40 border-amber-700/50 text-amber-300 hover:bg-amber-800/40' : 'bg-emerald-900/30 border-emerald-700/40 text-emerald-400 hover:bg-emerald-800/30'}`}>
+          {optimize ? <><Gauge size={11}/><span className="hidden sm:inline">O2</span></> : <><Zap size={11}/><span className="hidden sm:inline">Fast</span></>}
+        </button>
+        <button onClick={onRun} disabled={isCompiling} title="Run (Ctrl+Enter)"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-md transition-colors">
+          {isCompiling ? <Loader2 size={12} className="animate-spin"/> : <Play size={12}/>}
+          <span className="hidden sm:inline">{isCompiling ? 'Running...' : 'Run'}</span>
+          <kbd className="hidden lg:inline text-[9px] opacity-40 ml-0.5">⌘↵</kbd>
+        </button>
+        <div className="relative" ref={exportRef}>
+          <button onClick={() => setExportOpen(v => !v)} className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded-md transition-colors" title="Tải file">
+            <Download size={12}/><span className="hidden sm:inline">Export</span>
+            <ChevronDown size={10} className={`transition-transform ${exportOpen ? 'rotate-180' : ''}`}/>
+          </button>
+          {exportOpen && (
+            <div className="absolute right-0 top-full mt-1 w-48 bg-[#1a1a2e] border border-border rounded-lg shadow-2xl z-50 py-1">
+              {exportItems.map(item => (
+                <button key={item.label} onClick={item.onClick} disabled={item.disabled}
+                  className="flex items-center gap-2.5 w-full px-3 py-2 text-xs text-gray-300 hover:bg-gray-700/50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-left">
+                  <span className="text-gray-600">{item.icon}</span>
+                  <div><div className="font-mono font-medium">{item.label}</div><div className="text-gray-600 text-[10px]">{item.hint}</div></div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <ShareButton code={code} input={input}/>
+        {onOpenSettings && (
+          <button onClick={onOpenSettings} title="Editor Settings"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-700/60 hover:bg-gray-600/60 text-gray-300 text-xs font-medium rounded-md transition-colors border border-gray-700/50">
+            <Settings2 size={12}/>
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <header className="flex items-center justify-between px-3 py-1.5 bg-bg-header border-b border-border shrink-0 z-20 gap-2">
@@ -201,6 +254,18 @@ export default function Header({
 
         {/* Share */}
         <ShareButton code={code} input={input}/>
+
+        {/* Settings */}
+        {onOpenSettings && (
+          <button
+            onClick={onOpenSettings}
+            title="Editor Settings"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-700/60 hover:bg-gray-600/60 text-gray-300 text-xs font-medium rounded-md transition-colors border border-gray-700/50"
+          >
+            <Settings2 size={12}/>
+            <span className="hidden sm:inline">Settings</span>
+          </button>
+        )}
       </div>
     </header>
   );

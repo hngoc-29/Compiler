@@ -1,13 +1,7 @@
 /**
- * lib/compiler.ts
- * Compile và chạy C++ bằng g++ + ccache + PCH.
+ * lib/compiler.ts  v2
+ * Compile và chạy nhiều ngôn ngữ: C++, C, Python 3
  * KHÔNG import file này ở phía client/browser.
- *
- * Tối ưu tốc độ:
- *   - ccache: cache kết quả compile → lần 2+ gần như instant
- *   - PCH (bits/stdc++.h.gch): parse headers ~0ms thay vì ~2-3s
- *   - -O0 (fast mode): bỏ optimization passes → nhanh hơn -O2 ~2x
- *   - -pipe: dùng pipe thay file tạm giữa các pass → I/O ít hơn
  */
 
 import { spawn }               from 'child_process';
@@ -15,20 +9,20 @@ import { writeFile, unlink }   from 'fs/promises';
 import { join }                from 'path';
 import { randomUUID }          from 'crypto';
 import os                      from 'os';
+import { getLangById }         from './languages';
 
 export interface CompileResult {
   stdout:       string;
   stderr:       string;
   compileError: string | null;
   exitCode:     number;
-  runtime:      number;   // ms
+  runtime:      number;
   timedOut:     boolean;
 }
 
-const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;  // 2 MB
-const COMPILE_TIMEOUT  = 30_000;            // 30s cho bước compile
+const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
+const COMPILE_TIMEOUT  = 30_000;
 
-// ─── Chạy một process, gửi stdin, collect stdout/stderr ───
 function runProcess(
   cmd: string,
   args: string[],
@@ -70,38 +64,53 @@ function runProcess(
   });
 }
 
-// ─── Hàm compile + run chính ───
 export async function compileAndRun(
   code: string,
   input: string,
   timeoutMs = 10_000,
-  optimize  = false,   // false = O0 (nhanh), true = O2 (tối ưu)
+  optimize  = false,
+  langId    = 'cpp20',
 ): Promise<CompileResult> {
+  const lang    = getLangById(langId);
   const id      = randomUUID();
   const tmpDir  = os.tmpdir();
-  const srcFile = join(tmpDir, `cppeditor_${id}.cpp`);
-  const binFile = join(tmpDir, `cppeditor_${id}.out`);
-
-  // Flags compile:
-  //   -O0 / -O2    : tốc độ compile vs tốc độ runtime
-  //   -pipe        : dùng pipe thay file tạm giữa các pass (nhanh hơn)
-  //   -Wall -Wextra: cảnh báo đầy đủ (phải khớp với flag lúc tạo PCH)
-  const optFlag = optimize ? '-O2' : '-O0';
-  const gppArgs = [
-    `-std=c++20`, optFlag, `-pipe`,
-    `-Wall`, `-Wextra`,
-    `-o`, binFile, srcFile,
-  ];
-
-  // ccache nằm trong PATH (/usr/lib/ccache/g++ → wrapper),
-  // nếu không có ccache thì fallback về g++ thường.
-  const compiler = 'g++';
+  const srcFile = join(tmpDir, `editor_${id}.${lang.ext}`);
+  const binFile = join(tmpDir, `editor_${id}.out`);
 
   try {
     await writeFile(srcFile, code, { encoding: 'utf-8', mode: 0o644 });
 
-    const compileRes = await runProcess(compiler, gppArgs, '', COMPILE_TIMEOUT);
+    // ── Python: không cần compile step ───────────────────────────────────
+    if (lang.compiler === 'python3') {
+      const t0     = Date.now();
+      const runRes = await runProcess('python3', [srcFile], input, timeoutMs);
+      return {
+        stdout:       runRes.stdout,
+        stderr:       runRes.stderr,
+        compileError: runRes.exitCode !== 0 && !runRes.timedOut && !runRes.stdout
+          ? runRes.stderr
+          : null,
+        exitCode:     runRes.exitCode,
+        runtime:      Date.now() - t0,
+        timedOut:     runRes.timedOut,
+      };
+    }
 
+    // ── C / C++: compile then run ─────────────────────────────────────────
+    const optFlag  = optimize ? '-O2' : '-O0';
+    const compiler = lang.compiler; // 'g++' or 'gcc'
+    const stdFlag  = lang.args.find(a => a.startsWith('-std=')) ?? '-std=c++20';
+    const warnings = lang.args.filter(a => a.startsWith('-W'));
+    const extraLibs = lang.lang === 'c' ? ['-lm'] : [];
+
+    const gppArgs = [
+      stdFlag, optFlag, '-pipe',
+      ...warnings,
+      ...extraLibs,
+      '-o', binFile, srcFile,
+    ];
+
+    const compileRes = await runProcess(compiler, gppArgs, '', COMPILE_TIMEOUT);
     if (compileRes.exitCode !== 0) {
       return {
         stdout: '', stderr: '',
@@ -113,16 +122,15 @@ export async function compileAndRun(
 
     const t0     = Date.now();
     const runRes = await runProcess(binFile, [], input, timeoutMs);
-    const runtime = Date.now() - t0;
-
     return {
       stdout:       runRes.stdout,
       stderr:       runRes.stderr,
       compileError: null,
       exitCode:     runRes.exitCode,
-      runtime,
+      runtime:      Date.now() - t0,
       timedOut:     runRes.timedOut,
     };
+
   } finally {
     await Promise.allSettled([
       unlink(srcFile).catch(() => {}),

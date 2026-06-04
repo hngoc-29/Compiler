@@ -1,13 +1,20 @@
 'use client';
 
 /**
- * components/CodeEditor.tsx
- * v3 – Sửa mobile selection + thêm nút Undo/Redo
+ * components/CodeEditor.tsx  v5
+ * - Controlled by EditorSettings (suggestions, paramHints, minimap, etc.)
+ * - Rich signature help (parameter hints) via registerCppSuggestions
+ * - Undo/Redo buttons
+ * - Mobile interactions
  */
 
 import dynamic from 'next/dynamic';
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { Loader2, Undo2, Redo2 } from 'lucide-react';
+import { Loader2, Undo2, Redo2, Copy, Check } from 'lucide-react';
+import type { EditorSettings } from '@/lib/editor-settings';
+
+// Track globally so we only register Monaco providers once (they persist across mounts)
+const _registeredLangs = new Set<string>();
 
 const MonacoEditor = dynamic(
   () => import('@monaco-editor/react').then((m) => m.default),
@@ -22,25 +29,24 @@ const MonacoEditor = dynamic(
 );
 
 interface CodeEditorProps {
-  value:     string;
-  onChange:  (value: string | undefined) => void;
-  onRun:     () => void;
-  readOnly?: boolean;
+  value:        string;
+  onChange:     (value: string | undefined) => void;
+  onRun:        () => void;
+  language?:    string;
+  readOnly?:    boolean;
+  diagnostics?: { line: number; col: number; message: string; severity: 'error' | 'warning' }[];
+  settings?:    EditorSettings;
 }
 
 const isTouchDevice = () =>
   typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
 
-// ── Mobile: bôi đen + gõ thay thế ────────────────────────────────────────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function setupMobileInteractions(editor: any) {
+function setupMobileInteractions(editor: any, onSelectionChange?: (text: string | null) => void) {
   if (!isTouchDevice()) return;
-
   const domNode: HTMLElement | null = editor.getDomNode();
   if (!domNode) return;
 
-  // ─── Lưu selection khi editor blur (bàn phím ảo mở) ───────────────────
-  // Monaco có thể mất selection khi focus chuyển sang bàn phím ảo.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let savedSelection: any = null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -49,17 +55,17 @@ function setupMobileInteractions(editor: any) {
   editor.onDidChangeCursorSelection((e: any) => {
     latestSelection = e.selection;
     if (!e.selection.isEmpty()) {
-      savedSelection = e.selection; // lưu selection không rỗng gần nhất
+      savedSelection = e.selection;
+      if (onSelectionChange) {
+        const model = editor.getModel();
+        onSelectionChange(model ? model.getValueInRange(e.selection) : null);
+      }
+    } else {
+      onSelectionChange?.(null);
     }
   });
 
-  // Khi editor mất focus (bàn phím ảo mở), khôi phục selection
-  editor.onDidBlurEditorWidget(() => {
-    // giữ latestSelection để dùng khi refocus
-  });
-
   editor.onDidFocusEditorWidget(() => {
-    // Nếu có selection đã lưu và hiện tại rỗng → khôi phục
     setTimeout(() => {
       const cur = editor.getSelection();
       if (savedSelection && cur && cur.isEmpty() && !savedSelection.isEmpty()) {
@@ -68,55 +74,32 @@ function setupMobileInteractions(editor: any) {
     }, 50);
   });
 
-  // ─── Gõ phím thay thế vùng bôi đen ────────────────────────────────────
-  // Dùng cả beforeinput (capture) + input (fallback) cho đa dạng browser.
   const textarea = domNode.querySelector('textarea');
   if (textarea) {
+    textarea.addEventListener('beforeinput', (e: Event) => {
+      const ie = e as InputEvent;
+      if (ie.inputType !== 'insertText' || !ie.data) return;
+      const sel = (latestSelection && !latestSelection.isEmpty())
+        ? latestSelection
+        : (savedSelection && !savedSelection.isEmpty() ? savedSelection : null);
+      if (!sel) return;
+      editor.executeEdits('mobile-replace', [{ range: sel, text: '' }]);
+      editor.setPosition({ lineNumber: sel.startLineNumber, column: sel.startColumn });
+      savedSelection = null; latestSelection = null;
+    }, true);
 
-    // Phương án 1: beforeinput – chạy trước Monaco, đáng tin cậy nhất
-    textarea.addEventListener(
-      'beforeinput',
-      (e: Event) => {
-        const ie = e as InputEvent;
-        if (ie.inputType !== 'insertText' || !ie.data) return;
-
-        // Ưu tiên selection hiện tại, fallback về selection đã lưu
-        const sel = (latestSelection && !latestSelection.isEmpty())
-          ? latestSelection
-          : (savedSelection && !savedSelection.isEmpty() ? savedSelection : null);
-
-        if (!sel) return;
-
-        // Xóa selection, Monaco sẽ insert ký tự tại cursor mới
-        editor.executeEdits('mobile-replace', [{ range: sel, text: '' }]);
-        editor.setPosition({ lineNumber: sel.startLineNumber, column: sel.startColumn });
-
-        // Clear saved selection sau khi replace
-        savedSelection  = null;
-        latestSelection = null;
-      },
-      true // capture – chạy trước Monaco
-    );
-
-    // Phương án 2: keydown – xử lý Backspace/Delete khi có selection
-    textarea.addEventListener(
-      'keydown',
-      (e: KeyboardEvent) => {
-        if (e.key !== 'Backspace' && e.key !== 'Delete') return;
-        const sel = editor.getSelection();
-        if (!sel || sel.isEmpty()) return;
-        e.preventDefault();
-        editor.executeEdits('mobile-delete', [{ range: sel, text: '' }]);
-        savedSelection  = null;
-        latestSelection = null;
-      },
-      true
-    );
+    textarea.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key !== 'Backspace' && e.key !== 'Delete') return;
+      const sel = editor.getSelection();
+      if (!sel || sel.isEmpty()) return;
+      e.preventDefault();
+      editor.executeEdits('mobile-delete', [{ range: sel, text: '' }]);
+      savedSelection = null; latestSelection = null;
+    }, true);
   }
 
-  // ─── Long-press → chọn từ; kéo → mở rộng selection ───────────────────
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
-  let isSelectMode  = false;
+  let isSelectMode = false;
   let anchorPos: { lineNumber: number; column: number } | null = null;
 
   const clientToPosition = (cx: number, cy: number) => {
@@ -129,83 +112,63 @@ function setupMobileInteractions(editor: any) {
     if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
   };
 
-  domNode.addEventListener(
-    'touchstart',
-    (e: TouchEvent) => {
-      isSelectMode = false;
-      anchorPos    = null;
-      cancelLongPress();
+  domNode.addEventListener('touchstart', (e: TouchEvent) => {
+    isSelectMode = false; anchorPos = null; cancelLongPress();
+    const touch = e.touches[0];
+    longPressTimer = setTimeout(() => {
+      longPressTimer = null;
+      const pos = clientToPosition(touch.clientX, touch.clientY);
+      if (!pos) return;
+      const model = editor.getModel();
+      const word  = model?.getWordAtPosition(pos);
+      if (word) {
+        anchorPos = { lineNumber: pos.lineNumber, column: word.startColumn };
+        editor.setSelection({ startLineNumber: pos.lineNumber, startColumn: word.startColumn, endLineNumber: pos.lineNumber, endColumn: word.endColumn });
+      } else {
+        anchorPos = { lineNumber: pos.lineNumber, column: pos.column };
+        editor.setPosition(pos);
+      }
+      isSelectMode = true;
+      if (navigator.vibrate) navigator.vibrate(30);
+    }, 350);
+  }, { passive: true });
 
-      const touch = e.touches[0];
-      longPressTimer = setTimeout(() => {
-        longPressTimer = null;
-        const pos = clientToPosition(touch.clientX, touch.clientY);
-        if (!pos) return;
-
-        const model = editor.getModel();
-        const word  = model?.getWordAtPosition(pos);
-        if (word) {
-          anchorPos = { lineNumber: pos.lineNumber, column: word.startColumn };
-          editor.setSelection({
-            startLineNumber: pos.lineNumber,  startColumn: word.startColumn,
-            endLineNumber:   pos.lineNumber,  endColumn:   word.endColumn,
-          });
-        } else {
-          anchorPos = { lineNumber: pos.lineNumber, column: pos.column };
-          editor.setPosition(pos);
-        }
-        isSelectMode = true;
-        if (navigator.vibrate) navigator.vibrate(30);
-      }, 480);
-    },
-    { passive: true }
-  );
-
-  domNode.addEventListener(
-    'touchmove',
-    (e: TouchEvent) => {
-      if (!isSelectMode) { cancelLongPress(); return; }
-      e.preventDefault();
-
-      const touch  = e.touches[0];
-      const endPos = clientToPosition(touch.clientX, touch.clientY);
-      if (!endPos || !anchorPos) return;
-
-      const before =
-        endPos.lineNumber < anchorPos.lineNumber ||
-        (endPos.lineNumber === anchorPos.lineNumber && endPos.column < anchorPos.column);
-
-      editor.setSelection(
-        before
-          ? { startLineNumber: endPos.lineNumber, startColumn: endPos.column,
-              endLineNumber: anchorPos.lineNumber, endColumn: anchorPos.column }
-          : { startLineNumber: anchorPos.lineNumber, startColumn: anchorPos.column,
-              endLineNumber: endPos.lineNumber, endColumn: endPos.column }
-      );
-
-      // Auto-scroll khi kéo sát mép
-      const rect     = domNode.getBoundingClientRect();
-      const relY     = touch.clientY - rect.top;
-      const scrollBy = relY < 60 ? -40 : relY > rect.height - 60 ? 40 : 0;
-      if (scrollBy) editor.setScrollTop(editor.getScrollTop() + scrollBy);
-    },
-    { passive: false }
-  );
+  domNode.addEventListener('touchmove', (e: TouchEvent) => {
+    if (!isSelectMode) { cancelLongPress(); return; }
+    e.preventDefault();
+    const touch = e.touches[0];
+    const endPos = clientToPosition(touch.clientX, touch.clientY);
+    if (!endPos || !anchorPos) return;
+    const before = endPos.lineNumber < anchorPos.lineNumber || (endPos.lineNumber === anchorPos.lineNumber && endPos.column < anchorPos.column);
+    editor.setSelection(before
+      ? { startLineNumber: endPos.lineNumber, startColumn: endPos.column, endLineNumber: anchorPos.lineNumber, endColumn: anchorPos.column }
+      : { startLineNumber: anchorPos.lineNumber, startColumn: anchorPos.column, endLineNumber: endPos.lineNumber, endColumn: endPos.column });
+    const rect = domNode.getBoundingClientRect();
+    const relY = touch.clientY - rect.top;
+    const scrollBy = relY < 60 ? -40 : relY > rect.height - 60 ? 40 : 0;
+    if (scrollBy) editor.setScrollTop(editor.getScrollTop() + scrollBy);
+  }, { passive: false });
 
   const endSelect = () => { cancelLongPress(); isSelectMode = false; anchorPos = null; };
   domNode.addEventListener('touchend',    endSelect, { passive: true });
   domNode.addEventListener('touchcancel', endSelect, { passive: true });
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-export default function CodeEditor({ value, onChange, onRun, readOnly = false }: CodeEditorProps) {
+export default function CodeEditor({
+  value, onChange, onRun, language = 'cpp', readOnly = false, diagnostics = [], settings,
+}: CodeEditorProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const editorRef    = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const monacoRef    = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // ── Undo / Redo state (để enable/disable nút) ────────────────────────
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
+  // Mobile copy/select state
+  const [isTouch,      setIsTouch]      = useState(false);
+  const [mobileSelText, setMobileSelText] = useState<string | null>(null);
+  const [copyDone,     setCopyDone]     = useState(false);
 
   const handleUndo = useCallback(() => {
     editorRef.current?.trigger('toolbar', 'undo', null);
@@ -217,77 +180,148 @@ export default function CodeEditor({ value, onChange, onRun, readOnly = false }:
     editorRef.current?.focus();
   }, []);
 
-  // ── Fix 1: Monaco cần layout() tường minh khi container đổi kích thước ──
-  // KHÔNG set container.style.height thủ công — EditorLayout đã xử lý
-  // viewH = vv.height để co/restore outer container.
-  // CodeEditor chỉ cần báo Monaco redraw khi kích thước thay đổi.
+  // ── Register cpp suggestions whenever language changes to cpp/c ───────────
+  useEffect(() => {
+    if (language !== 'cpp' && language !== 'c') return;
+    if (_registeredLangs.has(language)) return;
+    // monacoRef might not be set yet if editor isn't mounted — handleMount will
+    // also try; whichever runs first wins.
+    if (!monacoRef.current) return;
+    _registeredLangs.add(language);
+    import('@/lib/cpp-suggestions').then(({ registerCppSuggestions }) => {
+      registerCppSuggestions(monacoRef.current, { snippets: settings?.snippets !== false });
+    });
+  }, [language, settings]);
+
+  // Apply diagnostics
+  useEffect(() => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!editor || !monaco) return;
+    const model = editor.getModel();
+    if (!model) return;
+    if (diagnostics.length === 0) {
+      monaco.editor.setModelMarkers(model, 'cppeditor', []);
+      return;
+    }
+    const markers = diagnostics.map(d => ({
+      severity: d.severity === 'warning' ? monaco.MarkerSeverity.Warning : monaco.MarkerSeverity.Error,
+      message: d.message,
+      startLineNumber: d.line, startColumn: d.col,
+      endLineNumber: d.line,
+      endColumn: Math.min(d.col + 120, model.getLineMaxColumn(d.line) ?? 999),
+      source: 'compiler',
+    }));
+    monaco.editor.setModelMarkers(model, 'cppeditor', markers);
+  }, [diagnostics]);
+
+  // Live-update editor options when settings change
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !settings) return;
+
+    editor.updateOptions({
+      minimap:                 { enabled: settings.minimap },
+      wordWrap:                settings.wordWrap ? 'on' : 'off',
+      lineNumbers:             settings.lineNumbers ? 'on' : 'off',
+      bracketPairColorization: { enabled: settings.bracketPairColorization },
+      renderWhitespace:        settings.renderWhitespace ? 'selection' : 'none',
+      fontLigatures:           settings.fontLigatures,
+      cursorBlinking:          settings.smoothCaret ? 'smooth' : 'blink',
+      cursorSmoothCaretAnimation: settings.smoothCaret ? 'on' : 'off',
+      fontSize:                settings.fontSize,
+      tabSize:                 settings.tabSize,
+      // Suggestions master toggle
+      suggestOnTriggerCharacters: settings.suggestions,
+      quickSuggestions: settings.suggestions && settings.quickSuggestions
+        ? { other: true, comments: false, strings: false }
+        : false,
+      parameterHints:  { enabled: settings.suggestions && settings.parameterHints },
+      suggest: {
+        snippetsPreventQuickSuggestions: false,
+        showSnippets:  settings.suggestions && settings.snippets,
+        showKeywords:  settings.suggestions,
+        showFunctions: settings.suggestions,
+        showVariables: settings.suggestions,
+        showClasses:   settings.suggestions,
+        showStructs:   settings.suggestions,
+        filterGraceful: true,
+        localityBonus:  true,
+      },
+    });
+  }, [settings]);
+
+  // Layout on resize
   useEffect(() => {
     if (typeof window === 'undefined') return;
     let rafId = 0;
-
     const relayout = () => {
       cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => {
-        editorRef.current?.layout();
-      });
+      rafId = requestAnimationFrame(() => { editorRef.current?.layout(); });
     };
-
     const vv = window.visualViewport;
-    if (vv) {
-      vv.addEventListener('resize', relayout);
-      vv.addEventListener('scroll', relayout);
-    }
+    if (vv) { vv.addEventListener('resize', relayout); vv.addEventListener('scroll', relayout); }
     window.addEventListener('resize', relayout);
-
     return () => {
       cancelAnimationFrame(rafId);
-      if (vv) {
-        vv.removeEventListener('resize', relayout);
-        vv.removeEventListener('scroll', relayout);
-      }
+      if (vv) { vv.removeEventListener('resize', relayout); vv.removeEventListener('scroll', relayout); }
       window.removeEventListener('resize', relayout);
     };
   }, []);
 
-  // ── handleMount ──────────────────────────────────────────────────────────
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const handleMount = async (editor: any, monaco: any) => {
-    editorRef.current = editor;
+  // Detect touch device (client-side only)
+  useEffect(() => { setIsTouch(isTouchDevice()); }, []);
 
-    // Ctrl/Cmd + Enter → Run
+  // Suppress Monaco's internal CancellationError unhandled rejections
+  // These appear as "ERR Canceled: Canceled" when autocomplete is cancelled by touch events
+  useEffect(() => {
+    const onUnhandled = (e: PromiseRejectionEvent) => {
+      const reason = e.reason;
+      const msg: string = (reason instanceof Error ? reason.message : String(reason ?? ''));
+      if (msg === 'Canceled' || (reason instanceof Error && reason.name === 'Canceled')) {
+        e.preventDefault(); // Silently discard — this is normal Monaco autocomplete cancellation
+      }
+    };
+    window.addEventListener('unhandledrejection', onUnhandled);
+    return () => window.removeEventListener('unhandledrejection', onUnhandled);
+  }, []);
+
+  // ── Mobile copy handlers ──────────────────────────────────────────────────
+  const handleCopyAll = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(editorRef.current?.getValue() ?? '');
+      setCopyDone(true);
+      setTimeout(() => setCopyDone(false), 1500);
+    } catch { /* clipboard permission denied on some browsers */ }
+  }, []);
+
+  const handleCopySel = useCallback(async () => {
+    if (!mobileSelText) return;
+    try {
+      await navigator.clipboard.writeText(mobileSelText);
+      setCopyDone(true);
+      setMobileSelText(null); // Clear the selection highlight after copy
+      setTimeout(() => setCopyDone(false), 1500);
+    } catch { /* clipboard permission denied */ }
+  }, [mobileSelText]);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleMount = (editor: any, monaco: any) => {
+    editorRef.current = editor;
+    monacoRef.current = monaco;
+
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, onRun);
 
-    // Suggestions
-    const { registerCppSuggestions } = await import('@/lib/cpp-suggestions');
-    registerCppSuggestions(monaco);
+    // Register C++ suggestions (once per Monaco instance, globally tracked)
+    if ((language === 'cpp' || language === 'c') && !_registeredLangs.has(language)) {
+      _registeredLangs.add(language);
+      import('@/lib/cpp-suggestions').then(({ registerCppSuggestions }) => {
+        registerCppSuggestions(monaco, { snippets: settings?.snippets !== false });
+      });
+    }
 
-    // Mobile interactions
-    setupMobileInteractions(editor);
+    setupMobileInteractions(editor, (text) => setMobileSelText(text));
 
-    // ── Theo dõi trạng thái Undo/Redo ──────────────────────────────────
-    const updateUndoRedo = () => {
-      const model = editor.getModel();
-      if (!model) return;
-      // Monaco không expose trực tiếp canUndo/canRedo qua API public,
-      // nhưng ta có thể dùng canUndo() từ model nếu có, hoặc track qua history.
-      // Fallback: luôn enable nếu model có nội dung.
-      const hasContent = (model.getValue() || '').length > 0;
-      setCanUndo(hasContent);
-      setCanRedo(false); // redo chỉ có sau khi undo
-    };
-
-    editor.onDidChangeModelContent(() => {
-      updateUndoRedo();
-      setCanUndo(true);
-      // Sau mỗi thay đổi, redo không khả dụng cho đến khi undo
-      setCanRedo(false);
-    });
-
-    // Khi undo xảy ra → redo khả dụng
-    editor.onDidChangeModelContent(() => updateUndoRedo());
-
-    // Dùng action để biết undo/redo có available không
-    // Monaco v0.34+ có editor.getModel()?._undoRedoService
     const trackUndoRedo = () => {
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -298,19 +332,15 @@ export default function CodeEditor({ value, onChange, onRun, readOnly = false }:
           setCanRedo((stack?.future?.length ?? 0) > 0);
         }
       } catch {
-        // fallback: luôn enable
-        setCanUndo(true);
-        setCanRedo(true);
+        setCanUndo(true); setCanRedo(true);
       }
     };
 
     editor.onDidChangeModelContent(trackUndoRedo);
-    // Cũng track khi cursor move (sau undo/redo cursor thay đổi)
     editor.onDidChangeCursorPosition(trackUndoRedo);
 
     setTimeout(() => editor.focus(), 50);
 
-    // Cursor tracking khi keyboard ảo mở
     editor.onDidChangeCursorPosition(() => {
       const vv = window.visualViewport;
       if (vv && vv.height < window.innerHeight * 0.75) {
@@ -320,119 +350,123 @@ export default function CodeEditor({ value, onChange, onRun, readOnly = false }:
     });
   };
 
+  const btnStyle = (enabled: boolean) => ({
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    width: 30, height: 26,
+    background: enabled ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: 6,
+    color: enabled ? '#c9d1d9' : '#484f58',
+    cursor: enabled ? 'pointer' : 'not-allowed',
+    transition: 'background 0.15s',
+  } as React.CSSProperties);
+
+  const s = settings;
+
   return (
     <div ref={containerRef} style={{ height: '100%', overflow: 'hidden', position: 'relative' }}>
-
-      {/* ── Nút Undo / Redo overlay ─────────────────────────────────────── */}
       {!readOnly && (
-        <div
-          style={{
-            position:  'absolute',
-            top:       6,
-            right:     10,
-            zIndex:    10,
-            display:   'flex',
-            gap:       4,
-            pointerEvents: 'auto',
-          }}
-        >
-          <button
-            onClick={handleUndo}
-            title="Undo (Ctrl+Z)"
-            disabled={!canUndo}
-            style={{
-              display:         'flex',
-              alignItems:      'center',
-              justifyContent:  'center',
-              width:           30,
-              height:          26,
-              background:      canUndo ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)',
-              border:          '1px solid rgba(255,255,255,0.12)',
-              borderRadius:    6,
-              color:           canUndo ? '#c9d1d9' : '#484f58',
-              cursor:          canUndo ? 'pointer' : 'not-allowed',
-              transition:      'background 0.15s',
-            }}
-            onMouseEnter={e => { if (canUndo) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.14)'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = canUndo ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)'; }}
-          >
+        <div style={{ position: 'absolute', top: 6, right: 10, zIndex: 10, display: 'flex', gap: 4 }}>
+          <button onClick={handleUndo} title="Undo (Ctrl+Z)" disabled={!canUndo} style={btnStyle(canUndo)}>
             <Undo2 size={14} />
           </button>
-
-          <button
-            onClick={handleRedo}
-            title="Redo (Ctrl+Y)"
-            disabled={!canRedo}
-            style={{
-              display:         'flex',
-              alignItems:      'center',
-              justifyContent:  'center',
-              width:           30,
-              height:          26,
-              background:      canRedo ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)',
-              border:          '1px solid rgba(255,255,255,0.12)',
-              borderRadius:    6,
-              color:           canRedo ? '#c9d1d9' : '#484f58',
-              cursor:          canRedo ? 'pointer' : 'not-allowed',
-              transition:      'background 0.15s',
-            }}
-            onMouseEnter={e => { if (canRedo) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.14)'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = canRedo ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)'; }}
-          >
+          <button onClick={handleRedo} title="Redo (Ctrl+Y)" disabled={!canRedo} style={btnStyle(canRedo)}>
             <Redo2 size={14} />
           </button>
+
+          {/* ── Mobile copy toolbar ── */}
+          {isTouch && (
+            mobileSelText ? (
+              /* Copy selection — appears when text is selected via long-press */
+              <button
+                onClick={handleCopySel}
+                title="Copy vùng đã chọn"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 3,
+                  height: 26, padding: '0 8px', borderRadius: 6,
+                  background: 'rgba(99,102,241,0.25)',
+                  border: '1px solid rgba(99,102,241,0.5)',
+                  color: copyDone ? '#4ade80' : '#a5b4fc',
+                  fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                  transition: 'color 0.2s',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {copyDone ? <Check size={12} /> : <Copy size={12} />}
+                <span style={{ marginLeft: 2 }}>
+                  {mobileSelText.length > 999
+                    ? `${(mobileSelText.length / 1000).toFixed(0)}k`
+                    : mobileSelText.length} ch
+                </span>
+              </button>
+            ) : (
+              /* Copy All — always visible on touch, copies entire editor content */
+              <button
+                onClick={handleCopyAll}
+                title="Copy toàn bộ code"
+                style={{
+                  ...btnStyle(true),
+                  color: copyDone ? '#4ade80' : undefined,
+                  transition: 'color 0.2s',
+                }}
+              >
+                {copyDone ? <Check size={14} /> : <Copy size={14} />}
+              </button>
+            )
+          )}
         </div>
       )}
 
       <MonacoEditor
         height="100%"
-        language="cpp"
+        language={language}
         theme="vs-dark"
         value={value}
         onChange={onChange}
         onMount={handleMount}
         options={{
           fontFamily:           "'JetBrains Mono', 'Fira Code', Consolas, monospace",
-          fontSize:             13,
-          fontLigatures:        true,
+          fontSize:             s?.fontSize ?? 13,
+          fontLigatures:        s?.fontLigatures ?? true,
           lineHeight:           22,
-          minimap:              { enabled: false },
+          minimap:              { enabled: s?.minimap ?? false },
           scrollBeyondLastLine: false,
-          wordWrap:             'off',
-          tabSize:              4,
+          wordWrap:             (s?.wordWrap ? 'on' : 'off') as any,
+          tabSize:              s?.tabSize ?? 4,
           insertSpaces:         true,
           readOnly,
           folding:              true,
-          bracketPairColorization: { enabled: true },
+          bracketPairColorization: { enabled: s?.bracketPairColorization ?? true },
           autoClosingBrackets:  'always',
           autoClosingQuotes:    'always',
-
-          suggestOnTriggerCharacters: true,
-          quickSuggestions: { other: true, comments: false, strings: false },
-          parameterHints:   { enabled: true },
+          // Suggestions
+          suggestOnTriggerCharacters: s?.suggestions ?? true,
+          quickSuggestions: (s?.suggestions ?? true) && (s?.quickSuggestions ?? true)
+            ? { other: true, comments: false, strings: false }
+            : false,
+          parameterHints:  { enabled: (s?.suggestions ?? true) && (s?.parameterHints ?? true) },
           suggest: {
             snippetsPreventQuickSuggestions: false,
-            showSnippets:  true,
-            showKeywords:  true,
-            showFunctions: true,
-            showVariables: true,
-            showClasses:   true,
-            showStructs:   true,
+            showSnippets:  (s?.suggestions ?? true) && (s?.snippets ?? true),
+            showKeywords:  s?.suggestions ?? true,
+            showFunctions: s?.suggestions ?? true,
+            showVariables: s?.suggestions ?? true,
+            showClasses:   s?.suggestions ?? true,
+            showStructs:   s?.suggestions ?? true,
             filterGraceful: true,
             localityBonus:  true,
           },
-          acceptSuggestionOnEnter: 'smart',
-
+          acceptSuggestionOnEnter:    'smart',
           smoothScrolling:            true,
-          cursorBlinking:             'smooth',
-          cursorSmoothCaretAnimation: 'on',
+          cursorBlinking:             (s?.smoothCaret ?? true) ? 'smooth' : 'blink',
+          cursorSmoothCaretAnimation: (s?.smoothCaret ?? true) ? 'on' : 'off',
           padding:                    { top: 10, bottom: 80 },
-          lineNumbers:                'on',
+          lineNumbers:                (s?.lineNumbers ?? true) ? 'on' : 'off',
           lineDecorationsWidth:       6,
           lineNumbersMinChars:        3,
-          renderWhitespace:           'selection',
-          overviewRulerLanes:         0,
-          hideCursorInOverviewRuler:  true,
+          renderWhitespace:           (s?.renderWhitespace ? 'selection' : 'none') as any,
+          overviewRulerLanes:         3,
+          hideCursorInOverviewRuler:  false,
           scrollbar: {
             verticalScrollbarSize:   6,
             horizontalScrollbarSize: 6,
@@ -440,6 +474,8 @@ export default function CodeEditor({ value, onChange, onRun, readOnly = false }:
           },
           cursorWidth: 2,
           mouseWheelScrollSensitivity: 1.5,
+          glyphMargin: true,
+          lightbulb: { enabled: true as any },
         }}
       />
     </div>

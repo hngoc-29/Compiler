@@ -66,6 +66,10 @@ body {
   height: 100%;
   tab-size: 4;
   -webkit-overflow-scrolling: touch;
+  /* Ensure native text selection works on mobile */
+  -webkit-user-select: text;
+  user-select: text;
+  touch-action: auto;
 }
 .code-textarea::placeholder { color: #3a3a5c; }
 
@@ -138,3 +142,10 @@ body {
 .bg-bg-header { background: #0a0a12; }
 .border-border { border-color: #1f1f32; }
 .bg-bg-base    { background: #0c0c14; }
+
+/* ── Toast: né mobile nav bar (58px + safe area) ──────────────── */
+@media (max-width: 1023px) {
+  [data-sonner-toaster][data-y-position="bottom"] {
+    bottom: calc(66px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
