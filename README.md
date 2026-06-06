@@ -1,3 +1,12 @@
+---
+title: Compiler
+emoji: ⚡
+colorFrom: yellow
+colorTo: amber
+sdk: docker
+pinned: false
+---
+
 # ⚡ CodeEditor
 
 Trình biên dịch code online hỗ trợ **C++20/17/14/11**, **C11** và **Python 3**, chạy thực tế trên server qua Socket.IO streaming. Giao diện Monaco Editor đầy đủ IntelliSense, layout 3 panel có thể resize, tối ưu cho cả desktop lẫn mobile.
