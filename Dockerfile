@@ -40,17 +40,22 @@ RUN set -e; \
 # ── Verify toolchain ─────────────────────────────────────────────────────────
 RUN g++ --version && gcc --version && python3 --version
 
+# ── Hugging Face Toàn Cầu Biến Môi Trường (Ép chạy cổng 7860) ──────────────────
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV PORT=3000
+ENV PORT=7860
 ENV HOSTNAME="0.0.0.0"
 ENV CCACHE_DIR=/tmp/ccache
 ENV CCACHE_MAXSIZE=512M
 ENV CCACHE_COMPRESS=1
 ENV PATH=/usr/lib/ccache:$PATH
+ENV HOME=/home/nextjs
 
-RUN addgroup --system --gid 1001 nodejs \
- && adduser  --system --uid 1001 nextjs
+# BẮT BUỘC: Đổi UID và GID thành 1000 để vừa chuẩn Hugging Face vừa phân quyền ghi tốt
+RUN addgroup --system --gid 1000 nodejs \
+ && adduser  --system --uid 1000 nextjs \
+ && mkdir -p /home/nextjs /tmp/ccache \
+ && chown -R nextjs:nodejs /home/nextjs /tmp/ccache
 
 # ── Copy standalone Next.js build ────────────────────────────────────────────
 COPY --from=builder --chown=nextjs:nodejs /app/public               ./public
@@ -74,15 +79,14 @@ COPY --from=builder --chown=nextjs:nodejs /app/node_modules/ms                 .
 # ── Override standalone server.js with custom Socket.IO server ───────────────
 COPY --from=builder --chown=nextjs:nodejs /app/server.js ./server.js
 
-RUN npm install negotiator accepts socket.io
-
-# ccache tmp dir (writable by nextjs user)
-RUN mkdir -p /tmp/ccache && chown nextjs:nodejs /tmp/ccache
+# Chạy lệnh cài đặt bổ sung dưới quyền root, sau đó sửa lại quyền sở hữu thư mục /app
+RUN npm install negotiator accepts socket.io && chown -R nextjs:nodejs /app
 
 USER nextjs
-EXPOSE 3000
+EXPOSE 7860
 
+# Cập nhật cổng kiểm tra sức khỏe thành 7860
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://localhost:3000/ || exit 1
+  CMD wget -qO- http://localhost:7860/ || exit 1
 
 CMD ["node", "server.js"]
