@@ -41,6 +41,8 @@ RUN set -e; \
 RUN g++ --version && gcc --version && python3 --version
 
 # ── Hugging Face Toàn Cầu Biến Môi Trường (Ép chạy cổng 7860) ──────────────────
+# ... (Giữ nguyên toàn bộ phần toolchain g++ và env phía trên)
+
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=7860
@@ -49,43 +51,40 @@ ENV CCACHE_DIR=/tmp/ccache
 ENV CCACHE_MAXSIZE=512M
 ENV CCACHE_COMPRESS=1
 ENV PATH=/usr/lib/ccache:$PATH
-ENV HOME=/home/nextjs
+ENV HOME=/home/node
 
-# BẮT BUỘC: Đổi UID và GID thành 1000 để vừa chuẩn Hugging Face vừa phân quyền ghi tốt
-RUN addgroup --system --gid 1000 nodejs \
- && adduser  --system --uid 1000 nextjs \
- && mkdir -p /home/nextjs /tmp/ccache \
- && chown -R nextjs:nodejs /home/nextjs /tmp/ccache
+# SỬA ĐOẠN NÀY: Dùng trực tiếp user 'node' (UID/GID 1000) có sẵn của Alpine
+RUN mkdir -p /home/node /tmp/ccache && chown -R node:node /home/node /tmp/ccache
 
-# ── Copy standalone Next.js build ────────────────────────────────────────────
-COPY --from=builder --chown=nextjs:nodejs /app/public               ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone      ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static          ./.next/static
+# ── Copy bản build Next.js Standalone (Sửa chown thành node:node) ──────────────
+COPY --from=builder --chown=node:node /app/public               ./public
+COPY --from=builder --chown=node:node /app/.next/standalone      ./
+COPY --from=builder --chown=node:node /app/.next/static          ./.next/static
 
-# ── Socket.IO modules not auto-traced by Next.js standalone ──────────────────
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/socket.io          ./node_modules/socket.io
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/engine.io          ./node_modules/engine.io
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/ws                 ./node_modules/ws
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@socket.io         ./node_modules/@socket.io
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/socket.io-adapter  ./node_modules/socket.io-adapter
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/socket.io-parser   ./node_modules/socket.io-parser
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/engine.io-parser   ./node_modules/engine.io-parser
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/accepts            ./node_modules/accepts
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/base64id           ./node_modules/base64id
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/cors               ./node_modules/cors
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/debug              ./node_modules/debug
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/ms                 ./node_modules/ms
+# ── Thêm các module Socket.IO (Sửa chown thành node:node) ──────────────────────
+COPY --from=builder --chown=node:node /app/node_modules/socket.io          ./node_modules/socket.io
+COPY --from=builder --chown=node:node /app/node_modules/engine.io          ./node_modules/engine.io
+COPY --from=builder --chown=node:node /app/node_modules/ws                 ./node_modules/ws
+COPY --from=builder --chown=node:node /app/node_modules/@socket.io         ./node_modules/@socket.io
+COPY --from=builder --chown=node:node /app/node_modules/socket.io-adapter  ./node_modules/socket.io-adapter
+COPY --from=builder --chown=node:node /app/node_modules/socket.io-parser   ./node_modules/socket.io-parser
+COPY --from=builder --chown=node:node /app/node_modules/engine.io-parser   ./node_modules/engine.io-parser
+COPY --from=builder --chown=node:node /app/node_modules/accepts            ./node_modules/accepts
+COPY --from=builder --chown=node:node /app/node_modules/base64id           ./node_modules/base64id
+COPY --from=builder --chown=node:node /app/node_modules/cors               ./node_modules/cors
+COPY --from=builder --chown=node:node /app/node_modules/debug              ./node_modules/debug
+COPY --from=builder --chown=node:node /app/node_modules/ms                 ./node_modules/ms
 
-# ── Override standalone server.js with custom Socket.IO server ───────────────
-COPY --from=builder --chown=nextjs:nodejs /app/server.js ./server.js
+# ── Override server.js (Sửa chown thành node:node) ─────────────────────────────
+COPY --from=builder --chown=node:node /app/server.js ./server.js
 
-# Chạy lệnh cài đặt bổ sung dưới quyền root, sau đó sửa lại quyền sở hữu thư mục /app
-RUN npm install negotiator accepts socket.io && chown -R nextjs:nodejs /app
+# Cài đặt thêm thư viện và phân phối lại quyền sở hữu cho user node
+RUN npm install negotiator accepts socket.io && chown -R node:node /app
 
-USER nextjs
+USER node
 EXPOSE 7860
 
-# Cập nhật cổng kiểm tra sức khỏe thành 7860
+# Cập nhật cổng kiểm tra sức khỏe hệ thống
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://localhost:7860/ || exit 1
 
