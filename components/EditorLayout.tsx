@@ -139,9 +139,28 @@ export default function EditorLayout({
   useEffect(() => {
     if (!containerRef.current) return;
     const t = containerRef.current.offsetWidth;
-    setCodeW(Math.floor(t / 3));
-    setInputW(Math.floor(t / 3));
+    const { panelWidths } = loadPrefs();
+    setCodeW(Math.floor(t * panelWidths.codeRatio));
+    setInputW(Math.floor(t * panelWidths.inputRatio));
   }, []);
+
+  // ─── Persist panel widths (debounced 500ms after last drag) ─────────────
+  const saveWidthsRef = useRef<ReturnType<typeof debounce> | null>(null);
+  useEffect(() => {
+    saveWidthsRef.current = debounce((cW: number, iW: number) => {
+      if (!containerRef.current) return;
+      const total = containerRef.current.offsetWidth;
+      if (total <= 0) return;
+      const prefs = loadPrefs();
+      savePrefs({ ...prefs, panelWidths: { codeRatio: cW / total, inputRatio: iW / total } });
+    }, 500) as unknown as ReturnType<typeof debounce>;
+  }, []);
+
+  useEffect(() => {
+    if (codeW > 0 && inputW > 0) {
+      saveWidthsRef.current?.(codeW, inputW);
+    }
+  }, [codeW, inputW]);
 
   const handleTogglePanel = useCallback((key: keyof PanelVisibility) => {
     setPanels(prev => {
@@ -187,8 +206,9 @@ export default function EditorLayout({
 
   useEffect(() => {
     if (!isReady) return;
+    if (isSharedView) return; // Don't overwrite own code when viewing a shared link
     autoSaveFn.current?.(code, testCases);
-  }, [code, testCases, isReady]);
+  }, [code, testCases, isReady, isSharedView]);
 
   useEffect(() => {
     if (initialCode !== undefined || initialInput !== undefined || initialTestCases !== undefined) {

@@ -3,18 +3,20 @@
 /**
  * components/TestCasePanel.tsx
  * Panel hiển thị + chạy nhiều test cases, có chấm Pass/Fail.
+ * Hỗ trợ export/import bộ test cases dưới dạng JSON.
  */
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Plus, Play, Pencil, CheckCircle, XCircle,
   Clock, Loader2, Terminal, ChevronDown, ChevronRight,
-  AlertTriangle,
+  AlertTriangle, Download, Upload,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import type { TestCase } from '@/lib/testcases';
-import { createTestCase, compareOutput } from '@/lib/testcases';
+import { createTestCase, compareOutput, exportTestCasesToJson, importTestCasesFromJson } from '@/lib/testcases';
 import TestCaseModal from './TestCaseModal';
-import { formatDuration } from '@/lib/utils';
+import { formatDuration, downloadTextFile } from '@/lib/utils';
 
 interface Props {
   testCases:    TestCase[];
@@ -61,6 +63,7 @@ export default function TestCasePanel({
 }: Props) {
   const [editingTc, setEditingTc]   = useState<TestCase | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   const addTestCase = () => {
     const tc = createTestCase(`Test ${testCases.length + 1}`);
@@ -80,6 +83,36 @@ export default function TestCasePanel({
   const toggleExpand = (id: string) =>
     setExpandedId(prev => prev === id ? null : id);
 
+  // ─── Export ──────────────────────────────────────────────────────────────
+  const handleExport = () => {
+    try {
+      downloadTextFile(exportTestCasesToJson(testCases), 'testcases.json');
+      toast.success(`Đã export ${testCases.length} test case${testCases.length > 1 ? 's' : ''}!`);
+    } catch {
+      toast.error('Không thể export test cases.');
+    }
+  };
+
+  // ─── Import ──────────────────────────────────────────────────────────────
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const json = ev.target?.result as string;
+        const parsed: unknown = JSON.parse(json);
+        const imported = importTestCasesFromJson(parsed);
+        onUpdate(imported);
+        toast.success(`Đã import ${imported.length} test case${imported.length > 1 ? 's' : ''}!`);
+      } catch {
+        toast.error('File không hợp lệ. Cần JSON: [{label, input, expectedOutput}]');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
   // Summary bar
   const ran = testCases.filter(tc => tc.status !== 'idle' && tc.status !== 'running');
   const passed  = ran.filter(tc => tc.status === 'ok').length;
@@ -88,6 +121,15 @@ export default function TestCasePanel({
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {/* Hidden file input for import */}
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        onChange={handleImportFile}
+      />
+
       {/* Header */}
       <div className="pane-bar">
         <div className="flex items-center gap-2">
@@ -106,6 +148,23 @@ export default function TestCasePanel({
           )}
         </div>
         <div className="flex items-center gap-1">
+          {/* Export */}
+          <button
+            onClick={handleExport}
+            className="p-1.5 text-gray-600 hover:text-gray-300 hover:bg-gray-700/50 rounded transition-colors"
+            title="Export test cases (.json)"
+          >
+            <Download size={11} />
+          </button>
+          {/* Import */}
+          <button
+            onClick={() => importInputRef.current?.click()}
+            className="p-1.5 text-gray-600 hover:text-gray-300 hover:bg-gray-700/50 rounded transition-colors"
+            title="Import test cases (.json)"
+          >
+            <Upload size={11} />
+          </button>
+          <div className="w-px h-3 bg-gray-700 mx-0.5" />
           <button
             onClick={addTestCase}
             className="flex items-center gap-1 px-2 py-1 text-[11px] text-gray-400 hover:text-gray-200 hover:bg-gray-700/50 rounded transition-colors"

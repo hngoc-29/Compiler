@@ -87,3 +87,37 @@ export function deserializeTestCases(saved: unknown): TestCase[] {
     }));
   return restored.length > 0 ? restored : DEFAULT_TEST_CASES;
 }
+
+/** Export: strip IDs so the file is clean and hand-editable */
+export function exportTestCasesToJson(tcs: TestCase[]): string {
+  const data = tcs.map(({ label, input, expectedOutput }) => ({
+    label, input, expectedOutput,
+  }));
+  return JSON.stringify(data, null, 2);
+}
+
+/** Import: parse exported JSON, always regenerate IDs to avoid conflicts */
+export function importTestCasesFromJson(raw: unknown): TestCase[] {
+  const arr: unknown = Array.isArray(raw)
+    ? raw
+    : Array.isArray((raw as Record<string, unknown>)?.testcases)
+      ? (raw as Record<string, unknown>).testcases
+      : null;
+
+  if (!Array.isArray(arr) || arr.length === 0) return DEFAULT_TEST_CASES;
+
+  const imported = (arr as Partial<SavedTestCase>[])
+    .filter(item => item && typeof item === 'object')
+    .map((item, i): TestCase => ({
+      id:             generateId(),
+      label:          typeof item.label          === 'string' ? item.label.trim() || `Test ${i + 1}` : `Test ${i + 1}`,
+      input:          typeof item.input          === 'string' ? item.input          : '',
+      expectedOutput: typeof item.expectedOutput === 'string' ? item.expectedOutput : '',
+      output:  null,
+      error:   null,
+      status:  'idle',
+      runtime: 0,
+    }));
+
+  return imported.length > 0 ? imported : DEFAULT_TEST_CASES;
+}
