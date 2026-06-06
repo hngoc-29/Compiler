@@ -230,6 +230,12 @@ export default function SettingsPanel({ open, onClose, settings, onChange }: Set
             checked={settings.renderWhitespace}
             onChange={v => set('renderWhitespace', v)}
           />
+          <ToggleRow
+            label="Show Warnings"
+            description="Hiển thị compiler warnings (màu vàng) trong tab Errors — tắt để chỉ thấy errors"
+            checked={settings.showWarnings}
+            onChange={v => set('showWarnings', v)}
+          />
 
           <Divider />
 

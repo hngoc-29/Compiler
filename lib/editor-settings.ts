@@ -18,6 +18,7 @@ export interface EditorSettings {
   renderWhitespace: boolean;
   fontLigatures: boolean;
   smoothCaret: boolean;
+  showWarnings: boolean;         // show compiler warnings (yellow) in Errors tab
 
   // Font
   fontSize: number;              // 11-20
@@ -37,6 +38,7 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   renderWhitespace: false,
   fontLigatures: true,
   smoothCaret: true,
+  showWarnings: true,
 
   fontSize: 13,
   tabSize: 4,

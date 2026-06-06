@@ -730,6 +730,7 @@ export default function EditorLayout({
                 result={liveResult}
                 isLoading={isCompiling && !streamStdout}
                 onClear={() => { setOutput(null); setDiagnostics([]); }}
+                showWarnings={settings.showWarnings}
               />
             </div>
           </div>
@@ -890,6 +891,7 @@ export default function EditorLayout({
                 result={liveResult}
                 isLoading={isCompiling && !streamStdout}
                 onClear={() => { setOutput(null); setDiagnostics([]); }}
+                showWarnings={settings.showWarnings}
               />
             </div>
           )}

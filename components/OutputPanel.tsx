@@ -3,12 +3,13 @@
 /**
  * components/OutputPanel.tsx
  * Hiển thị kết quả compile: tab Output, Errors, Info.
+ * Warnings từ compiler được hiển thị màu vàng, tách biệt với errors màu đỏ.
  */
 
 import { useState } from 'react';
 import {
   Copy, Trash2, Terminal, AlertCircle, Info,
-  Loader2, CheckCircle, XCircle, Clock,
+  Loader2, CheckCircle, XCircle, Clock, AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDuration } from '@/lib/utils';
@@ -23,37 +24,95 @@ export interface CompileResult {
 }
 
 interface OutputPanelProps {
-  result:    CompileResult | null;
-  isLoading: boolean;
-  onClear:   () => void;
+  result:       CompileResult | null;
+  isLoading:    boolean;
+  onClear:      () => void;
+  showWarnings: boolean;
 }
 
 type TabId = 'output' | 'errors' | 'info';
 
-export default function OutputPanel({ result, isLoading, onClear }: OutputPanelProps) {
+// ─── Parse GCC/G++ diagnostic output ────────────────────────────────────────
+interface ParsedDiagnostics {
+  warnings: string[];
+  errors:   string[];
+}
+
+function parseCompilerOutput(raw: string): ParsedDiagnostics {
+  if (!raw.trim()) return { warnings: [], errors: [] };
+
+  const lines = raw.split('\n');
+  const warnings: string[] = [];
+  const errors:   string[] = [];
+
+  let currentLines: string[]         = [];
+  let currentType: 'w' | 'e' | null = null;
+
+  const flush = () => {
+    if (currentLines.length === 0) return;
+    const block = currentLines.join('\n').trimEnd();
+    if (block) {
+      if (currentType === 'w') warnings.push(block);
+      else                     errors.push(block);
+    }
+    currentLines = [];
+    currentType  = null;
+  };
+
+  for (const line of lines) {
+    const isWarning = /:\s*warning:/.test(line);
+    const isError   = /:\s*(fatal\s+)?error:/.test(line);
+
+    if (isWarning || isError) {
+      flush();
+      currentType = isWarning ? 'w' : 'e';
+    }
+
+    if (currentType === null && line.trim() === '') continue;
+    if (currentType === null) currentType = 'e';
+
+    currentLines.push(line);
+  }
+  flush();
+
+  return { warnings, errors };
+}
+
+export default function OutputPanel({ result, isLoading, onClear, showWarnings }: OutputPanelProps) {
   const [tab, setTab] = useState<TabId>('output');
 
-  const errCount = result
-    ? (result.compileError ? 1 : 0) + (result.stderr ? 1 : 0)
-    : 0;
+  const { warnings, errors } = result?.compileError
+    ? parseCompilerOutput(result.compileError)
+    : { warnings: [], errors: [] };
+
+  const visibleIssueCount =
+    errors.length +
+    (showWarnings ? warnings.length : 0) +
+    (result?.stderr ? 1 : 0);
 
   const handleCopy = async () => {
     if (!result) return;
     let text = '';
     if (tab === 'output') text = result.stdout || '(no output)';
-    else if (tab === 'errors')
-      text = [result.compileError, result.stderr].filter(Boolean).join('\n\n') || '(no errors)';
-    else
+    else if (tab === 'errors') {
+      const parts: string[] = [];
+      if (errors.length)                    parts.push(errors.join('\n\n'));
+      if (showWarnings && warnings.length)  parts.push(warnings.join('\n\n'));
+      if (result.stderr)                    parts.push(result.stderr);
+      text = parts.join('\n\n') || '(no errors)';
+    } else {
       text = `Exit: ${result.exitCode}\nRuntime: ${formatDuration(result.runtime)}\nTimeout: ${result.timedOut}`;
+    }
     try { await navigator.clipboard.writeText(text); toast.success('Đã copy!'); }
     catch { toast.error('Không thể copy'); }
   };
 
-  // Badge trạng thái nhỏ bên phải header
   const statusBadge = () => {
     if (!result) return null;
-    if (result.compileError)
+    if (errors.length > 0)
       return <Badge color="red"><XCircle size={10}/> Compile Error</Badge>;
+    if (showWarnings && warnings.length > 0)
+      return <Badge color="yellow"><AlertTriangle size={10}/> Warning</Badge>;
     if (result.timedOut)
       return <Badge color="yellow"><Clock size={10}/> Timeout</Badge>;
     if (result.exitCode !== 0)
@@ -62,8 +121,8 @@ export default function OutputPanel({ result, isLoading, onClear }: OutputPanelP
   };
 
   const tabs = [
-    { id: 'output' as TabId,  label: 'Output', icon: <Terminal   size={11}/> },
-    { id: 'errors' as TabId,  label: 'Errors', icon: <AlertCircle size={11}/>, badge: errCount || undefined },
+    { id: 'output' as TabId,  label: 'Output', icon: <Terminal    size={11}/> },
+    { id: 'errors' as TabId,  label: 'Errors', icon: <AlertCircle size={11}/>, badge: visibleIssueCount || undefined },
     { id: 'info'   as TabId,  label: 'Info',   icon: <Info        size={11}/> },
   ];
 
@@ -134,15 +193,39 @@ export default function OutputPanel({ result, isLoading, onClear }: OutputPanelP
         )}
 
         {!isLoading && result && tab === 'errors' && (
-          <div className="p-3 space-y-3">
-            {result.compileError && (
-              <div>
-                <p className="text-[11px] font-semibold text-red-400 mb-1.5 flex items-center gap-1">
-                  <XCircle size={11}/> Compile Error
+          <div className="p-3 space-y-4">
+
+            {/* ── Compile errors (đỏ) ──────────────────────── */}
+            {errors.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold text-red-400 flex items-center gap-1">
+                  <XCircle size={11}/>
+                  Compile Error{errors.length > 1 ? `s (${errors.length})` : ''}
                 </p>
-                <pre className="output-pre text-red-300 bg-red-950/20 rounded p-3 text-xs">{result.compileError}</pre>
+                {errors.map((block, i) => (
+                  <pre key={i} className="output-pre text-red-300 bg-red-950/20 rounded p-3 text-xs whitespace-pre-wrap">
+                    {block}
+                  </pre>
+                ))}
               </div>
             )}
+
+            {/* ── Warnings (vàng) ── ẩn khi showWarnings=false */}
+            {showWarnings && warnings.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold text-yellow-400 flex items-center gap-1">
+                  <AlertTriangle size={11}/>
+                  Warning{warnings.length > 1 ? `s (${warnings.length})` : ''}
+                </p>
+                {warnings.map((block, i) => (
+                  <pre key={i} className="output-pre text-yellow-300 bg-yellow-950/20 rounded p-3 text-xs whitespace-pre-wrap">
+                    {block}
+                  </pre>
+                ))}
+              </div>
+            )}
+
+            {/* ── Runtime stderr (cam) ─────────────────────── */}
             {result.stderr && (
               <div>
                 <p className="text-[11px] font-semibold text-orange-400 mb-1.5 flex items-center gap-1">
@@ -151,9 +234,15 @@ export default function OutputPanel({ result, isLoading, onClear }: OutputPanelP
                 <pre className="output-pre text-orange-300 bg-orange-950/20 rounded p-3 text-xs">{result.stderr}</pre>
               </div>
             )}
-            {!result.compileError && !result.stderr && (
+
+            {/* ── All clear ────────────────────────────────── */}
+            {errors.length === 0 && result.stderr === '' &&
+             (!showWarnings || warnings.length === 0) && (
               <div className="flex items-center gap-2 text-green-400 text-xs p-4">
-                <CheckCircle size={14}/> Không có lỗi!
+                <CheckCircle size={14}/>
+                {!showWarnings && warnings.length > 0
+                  ? `Không có lỗi! (${warnings.length} warning đang bị ẩn)`
+                  : 'Không có lỗi!'}
               </div>
             )}
           </div>
@@ -161,12 +250,13 @@ export default function OutputPanel({ result, isLoading, onClear }: OutputPanelP
 
         {!isLoading && result && tab === 'info' && (
           <div className="p-4 space-y-2.5 text-xs">
-            <Row label="Compile"     v={result.compileError ? '❌ Thất bại' : '✅ Thành công'} vc={result.compileError ? 'text-red-400' : 'text-green-400'}/>
+            <Row label="Compile"     v={errors.length > 0 ? '❌ Thất bại' : '✅ Thành công'} vc={errors.length > 0 ? 'text-red-400' : 'text-green-400'}/>
             <Row label="Exit code"   v={String(result.exitCode)} vc={result.exitCode === 0 ? 'text-green-400' : 'text-orange-400'}/>
-            <Row label="Runtime"     v={result.compileError ? 'N/A' : formatDuration(result.runtime)} vc="text-blue-400"/>
+            <Row label="Runtime"     v={errors.length > 0 ? 'N/A' : formatDuration(result.runtime)} vc="text-blue-400"/>
             <Row label="Timeout"     v={result.timedOut ? '⚠️ Có' : 'Không'} vc={result.timedOut ? 'text-yellow-400' : 'text-gray-500'}/>
             <Row label="stdout size" v={`${result.stdout.length} chars`} vc="text-gray-500"/>
             <Row label="stderr size" v={`${result.stderr.length} chars`} vc="text-gray-500"/>
+            <Row label="Warnings"    v={warnings.length > 0 ? `${warnings.length} (${showWarnings ? 'hiện' : 'ẩn'})` : 'Không có'} vc={warnings.length > 0 ? 'text-yellow-400' : 'text-gray-500'}/>
           </div>
         )}
       </div>
