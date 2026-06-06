@@ -17,15 +17,16 @@ const BAR_H   = 44;    // px – chiều cao thanh handle khi đóng
 const SNAP_VH = 0.48;  // fraction viewport khi auto-open
 
 interface OutputDrawerProps {
-  result:    CompileResult | null;
-  isLoading: boolean;
-  onClear:   () => void;
+  result:       CompileResult | null;
+  isLoading:    boolean;
+  onClear:      () => void;
+  showWarnings: boolean;
   /** Chunks stdout streaming để hiển thị trước khi done */
   streamChunks?: string;
 }
 
 export default function OutputDrawer({
-  result, isLoading, onClear, streamChunks,
+  result, isLoading, onClear, streamChunks, showWarnings,
 }: OutputDrawerProps) {
   const [height, setHeight]   = useState(BAR_H);
   const [snapping, setSnapping] = useState(false); // animation đang chạy
@@ -185,6 +186,7 @@ export default function OutputDrawer({
             result={liveResult}
             isLoading={isLoading && !streamChunks}
             onClear={onClear}
+            showWarnings={showWarnings}
           />
         </div>
       )}
