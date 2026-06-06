@@ -2,7 +2,7 @@ name: Sync to Hugging Face Spaces
 
 on:
   push:
-    branches: [huggingface] # Kích hoạt tự động khi bạn push code vào nhánh huggingface
+    branches: [huggingface]
 
 jobs:
   deploy:
@@ -18,11 +18,22 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_USERNAME: ${{ secrets.HF_USERNAME }}
-          SPACE_NAME: "Compiler" # Đã chuẩn hóa theo đúng tên hiển thị trên giao diện của bạn
+          SPACE_NAME: "Compiler"
         run: |
           git config --global user.email "lmtcv1.9@gmail.com"
           git config --global user.name "hn"
           git remote add hf https://$HF_USERNAME:$HF_TOKEN@huggingface.co/spaces/$HF_USERNAME/$SPACE_NAME
-          
-          # Đẩy mã nguồn từ nhánh phụ 'huggingface' của GitHub sang nhánh 'main' bắt buộc của Hugging Face
-          git push --force hf huggingface:main
+
+          # Retry tối đa 5 lần, mỗi lần chờ lâu hơn (30s, 60s, 120s, 240s)
+          for i in 1 2 3 4 5; do
+            echo "Attempt $i..."
+            git push --force hf huggingface:main && echo "Push succeeded!" && exit 0
+            if [ $i -lt 5 ]; then
+              WAIT=$((30 * (2 ** (i - 1))))
+              echo "Failed (429?). Waiting ${WAIT}s before retry..."
+              sleep $WAIT
+            fi
+          done
+
+          echo "All attempts failed."
+          exit 1
