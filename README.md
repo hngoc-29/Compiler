@@ -2,7 +2,7 @@
 title: Compiler
 emoji: ⚡
 colorFrom: yellow
-colorTo: amber
+colorTo: yellow
 sdk: docker
 pinned: false
 ---
