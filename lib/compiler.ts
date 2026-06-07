@@ -84,12 +84,12 @@ export async function compileAndRun(
     if (lang.compiler === 'python3') {
       const t0     = Date.now();
       const runRes = await runProcess('python3', [srcFile], input, timeoutMs);
+      // Nếu exitCode != 0 và không phải timeout → coi stderr là lỗi runtime
+      const isRuntimeError = runRes.exitCode !== 0 && !runRes.timedOut;
       return {
         stdout:       runRes.stdout,
-        stderr:       runRes.stderr,
-        compileError: runRes.exitCode !== 0 && !runRes.timedOut && !runRes.stdout
-          ? runRes.stderr
-          : null,
+        stderr:       isRuntimeError ? '' : runRes.stderr,
+        compileError: isRuntimeError ? (runRes.stderr || 'Runtime error') : null,
         exitCode:     runRes.exitCode,
         runtime:      Date.now() - t0,
         timedOut:     runRes.timedOut,

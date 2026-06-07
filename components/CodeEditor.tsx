@@ -328,6 +328,10 @@ export default function CodeEditor({
     monacoRef.current = monaco;
 
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, onRun);
+    editor.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF,
+      () => editor.getAction('editor.action.formatDocument')?.run(),
+    );
 
     // Register C++ suggestions (once per Monaco instance, globally tracked)
     if ((language === 'cpp' || language === 'c') && !_registeredLangs.has(language)) {

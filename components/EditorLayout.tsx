@@ -32,7 +32,7 @@ import { DEFAULT_TEST_CASES, type TestCase, type SavedTestCase, createTestCase, 
 import { parseGppDiagnostics, type Diagnostic } from '@/lib/cpp-suggestions';
 import { loadSettings, saveSettings, type EditorSettings } from '@/lib/editor-settings';
 import { loadPrefs,   savePrefs                            } from '@/lib/user-prefs';
-import { Copy, Check, Loader2, Code2, AlignLeft, ClipboardList, MonitorDot, Play, Zap, Gauge, Settings2 } from 'lucide-react';
+import { Copy, Check, Loader2, Code2, AlignLeft, ClipboardList, MonitorDot, Play, Zap, Gauge, Settings2, Eye } from 'lucide-react';
 
 const MIN_PX = 120;
 
@@ -604,6 +604,14 @@ export default function EditorLayout({
         settings={settings}
         onChange={handleSettingsChange}
       />
+
+      {/* ── Shared view banner ──────────────────────────────────────────── */}
+      {isSharedView && (
+        <div className="flex items-center gap-2 px-3 py-1 bg-violet-950/60 border-b border-violet-800/40 text-violet-400 text-[11px] shrink-0 z-30">
+          <Eye size={11} className="shrink-0" />
+          <span>Đang xem code được chia sẻ — thay đổi sẽ <strong>không</strong> được lưu. Về <a href="/" className="underline hover:text-violet-300">trang chính</a> để soạn code mới.</span>
+        </div>
+      )}
       {/* ── MOBILE header — chỉ cần Logo + Lang + Optimize + Settings ── */}
       {isMobile ? (
         <header
@@ -674,6 +682,7 @@ export default function EditorLayout({
             panels={panels} onTogglePanel={handleTogglePanel}
             optimize={optimize} onToggleOptimize={() => { setOptimize(v => { const next = !v; savePrefs({ ...loadPrefs(), optimize: next }); return next; }); }}
             isSharedView={isSharedView}
+            langId={langId}
             inputHasContent={singleInput.trim().length > 0}
             minimal={true}
             onOpenSettings={() => setSettingsOpen(true)}
@@ -709,7 +718,7 @@ export default function EditorLayout({
                 </div>
                 <CopyButton text={singleInput} label="input" />
               </div>
-              <SingleInputEditor value={singleInput} onChange={setSingleInput} />
+              <SingleInputEditor value={singleInput} onChange={setSingleInput} fontSize={settings.fontSize} />
             </div>
 
             {/* Tests tab */}
@@ -835,7 +844,10 @@ export default function EditorLayout({
           {/* Code pane */}
           {panels.code && (
             <div className="flex flex-col overflow-hidden" style={getDesktopStyle('code', codeW)}>
-              <PaneBar dotColor="dot-green" title="main.cpp" subtitle={codeSubtitle}>
+              <PaneBar dotColor="dot-green" title={lang.ext === 'py' ? 'main.py' : lang.ext === 'c' ? 'main.c' : 'main.cpp'} subtitle={codeSubtitle}>
+                <span className="text-[10px] text-gray-700 font-mono mr-1">
+                  {code.split('\n').length}L · {code.length}C
+                </span>
                 <CopyButton text={code} label="code" />
               </PaneBar>
               <div className="flex-1 overflow-hidden">
@@ -864,7 +876,7 @@ export default function EditorLayout({
                     <CopyButton text={singleInput} label="input" />
                   </PaneBar>
                   <div className="flex-1 overflow-hidden">
-                    <SingleInputEditor value={singleInput} onChange={setSingleInput} />
+                    <SingleInputEditor value={singleInput} onChange={setSingleInput} fontSize={settings.fontSize} />
                   </div>
                 </>
               ) : (
@@ -908,7 +920,11 @@ export default function EditorLayout({
 }
 
 // ── Single Input Editor ───────────────────────────────────────────────────
-function SingleInputEditor({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function SingleInputEditor({ value, onChange, fontSize = 13 }: {
+  value: string;
+  onChange: (v: string) => void;
+  fontSize?: number;
+}) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key !== 'Tab') return;
@@ -927,6 +943,7 @@ function SingleInputEditor({ value, onChange }: { value: string; onChange: (v: s
       placeholder={"Nhập stdin ở đây...\n(nội dung sẽ truyền vào cin)"}
       spellCheck={false}
       autoComplete="off"
+      style={{ fontSize: `${fontSize}px` }}
       className="code-textarea flex-1 h-full"
     />
   );

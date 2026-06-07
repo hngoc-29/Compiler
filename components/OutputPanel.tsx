@@ -141,7 +141,9 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings }
               }`}>
               {t.icon} {t.label}
               {t.badge !== undefined && (
-                <span className="px-1 rounded-full bg-red-600 text-white text-[9px] leading-4">
+                <span className={`px-1 rounded-full text-white text-[9px] leading-4 ${
+                  t.id === 'errors' && errors.length === 0 ? 'bg-yellow-600' : 'bg-red-600'
+                }`}>
                   {t.badge}
                 </span>
               )}

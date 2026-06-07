@@ -10,11 +10,11 @@ import { useRef, useState } from 'react';
 import {
   Plus, Play, Pencil, CheckCircle, XCircle,
   Clock, Loader2, Terminal, ChevronDown, ChevronRight,
-  AlertTriangle, Download, Upload,
+  AlertTriangle, Download, Upload, RotateCcw, Copy,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { TestCase } from '@/lib/testcases';
-import { createTestCase, compareOutput, exportTestCasesToJson, importTestCasesFromJson } from '@/lib/testcases';
+import { createTestCase, compareOutput, exportTestCasesToJson, importTestCasesFromJson, duplicateTestCase } from '@/lib/testcases';
 import TestCaseModal from './TestCaseModal';
 import { formatDuration, downloadTextFile } from '@/lib/utils';
 
@@ -83,6 +83,22 @@ export default function TestCasePanel({
   const toggleExpand = (id: string) =>
     setExpandedId(prev => prev === id ? null : id);
 
+  // ─── Reset all results ────────────────────────────────────────────────────
+  const handleReset = () => {
+    onUpdate(testCases.map(tc => ({ ...tc, status: 'idle' as const, output: null, error: null, runtime: 0 })));
+  };
+
+  // ─── Duplicate a test case ────────────────────────────────────────────────
+  const handleDuplicate = (tc: TestCase) => {
+    const newLabel = `${tc.label} (copy)`;
+    const duped = duplicateTestCase(tc, newLabel);
+    const idx = testCases.findIndex(t => t.id === tc.id);
+    const next = [...testCases];
+    next.splice(idx + 1, 0, duped);
+    onUpdate(next);
+    toast.success(`Đã duplicate "${tc.label}"`);
+  };
+
   // ─── Export ──────────────────────────────────────────────────────────────
   const handleExport = () => {
     try {
@@ -148,6 +164,16 @@ export default function TestCasePanel({
           )}
         </div>
         <div className="flex items-center gap-1">
+          {/* Reset results */}
+          {ran.length > 0 && (
+            <button
+              onClick={handleReset}
+              className="p-1.5 text-gray-600 hover:text-gray-300 hover:bg-gray-700/50 rounded transition-colors"
+              title="Reset tất cả kết quả về idle"
+            >
+              <RotateCcw size={11} />
+            </button>
+          )}
           {/* Export */}
           <button
             onClick={handleExport}
@@ -227,6 +253,13 @@ export default function TestCasePanel({
                     title="Sửa test case"
                   >
                     <Pencil size={10} />
+                  </button>
+                  <button
+                    onClick={() => handleDuplicate(tc)}
+                    className="p-1 rounded hover:bg-gray-700 text-gray-600 hover:text-gray-300 transition-colors"
+                    title="Duplicate test case"
+                  >
+                    <Copy size={10} />
                   </button>
                   <button
                     onClick={() => onRunOne(tc)}

@@ -88,6 +88,20 @@ export function deserializeTestCases(saved: unknown): TestCase[] {
   return restored.length > 0 ? restored : DEFAULT_TEST_CASES;
 }
 
+/** Tạo bản sao của test case với ID mới */
+export function duplicateTestCase(tc: TestCase, newLabel: string): TestCase {
+  return {
+    id:             generateId(),
+    label:          newLabel,
+    input:          tc.input,
+    expectedOutput: tc.expectedOutput,
+    output:  null,
+    error:   null,
+    status:  'idle',
+    runtime: 0,
+  };
+}
+
 /** Export: strip IDs so the file is clean and hand-editable */
 export function exportTestCasesToJson(tcs: TestCase[]): string {
   const data = tcs.map(({ label, input, expectedOutput }) => ({

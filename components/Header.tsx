@@ -35,6 +35,7 @@ interface HeaderProps {
   optimize:         boolean;
   onToggleOptimize: () => void;
   isSharedView?:    boolean;
+  langId?:          string;
   /** Mobile only: mở InputDrawer */
   onOpenInput?:     () => void;
   /** Có nội dung trong input không (để hiển thị dot indicator) */
@@ -50,6 +51,7 @@ export default function Header({
   panels, onTogglePanel,
   optimize, onToggleOptimize,
   isSharedView = false,
+  langId = 'cpp20',
   onOpenInput,
   inputHasContent = false,
   minimal = false,
@@ -58,6 +60,14 @@ export default function Header({
 }: HeaderProps) {
   const [exportOpen, setExportOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
+
+  // Tên file source đúng theo ngôn ngữ
+  const srcFilename = langId.startsWith('python') ? 'main.py'
+    : langId === 'c11' ? 'main.c'
+    : 'main.cpp';
+  const srcHint = langId.startsWith('python') ? 'Python source'
+    : langId === 'c11' ? 'C source'
+    : 'C++ source';
 
   useEffect(() => {
     const fn = (e: MouseEvent) => {
@@ -77,7 +87,7 @@ export default function Header({
   };
 
   const exportItems = [
-    { icon: <FileCode   size={13}/>, label: 'main.cpp',   hint: 'C++ source',  onClick: () => doDownload('main.cpp',   code) },
+    { icon: <FileCode   size={13}/>, label: srcFilename, hint: srcHint,    onClick: () => doDownload(srcFilename, code) },
     { icon: <FileText   size={13}/>, label: 'input.txt',  hint: 'Stdin input', onClick: () => doDownload('input.txt',  input) },
     { icon: <FileOutput size={13}/>, label: 'output.txt', hint: 'Stdout',      disabled: !output,
       onClick: () => output && doDownload('output.txt', output.stdout) },

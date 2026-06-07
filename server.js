@@ -104,12 +104,11 @@ async function compileAndRunStream(code, input, timeoutMs, optimize, langId, cal
         callbacks.onStderr,
       );
       const runtime = Date.now() - t0;
+      const isRuntimeError = runRes.exitCode !== 0 && !runRes.timedOut;
       callbacks.onDone?.({
         stdout:       runRes.stdout,
-        stderr:       runRes.stderr,
-        compileError: runRes.exitCode !== 0 && !runRes.timedOut && !runRes.stdout
-          ? runRes.stderr
-          : null,
+        stderr:       isRuntimeError ? '' : runRes.stderr,
+        compileError: isRuntimeError ? (runRes.stderr || 'Runtime error') : null,
         exitCode:     runRes.exitCode,
         runtime,
         timedOut:     runRes.timedOut,
@@ -272,10 +271,11 @@ app.prepare().then(() => {
             const input = typeof inputs[i] === 'string' ? inputs[i] : '';
             const t0    = Date.now();
             const res   = await runProcess('python3', [srcFile], input, RUN_TIMEOUT);
+            const isRuntimeError = res.exitCode !== 0 && !res.timedOut;
             socket.emit('compile:batch:result', {
               index:    i,
               stdout:   res.stdout,
-              stderr:   res.stderr,
+              stderr:   isRuntimeError ? '' : res.stderr,
               exitCode: res.exitCode,
               runtime:  Date.now() - t0,
               timedOut: res.timedOut,
