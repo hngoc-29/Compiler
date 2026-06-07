@@ -341,6 +341,11 @@ export default function CodeEditor({
       });
     }
 
+    // Register user-defined function hints (completion + signatureHelp) for all langs
+    import('@/lib/user-fn-hints').then(({ registerUserFnProviders }) => {
+      registerUserFnProviders(monaco, language);
+    });
+
     setupMobileInteractions(editor, (text) => {
       mobileSelRef.current = text;   // Ref updated synchronously — always fresh
       setMobileSelText(text);        // State updated for rendering
@@ -446,7 +451,7 @@ export default function CodeEditor({
       <MonacoEditor
         height="100%"
         language={language}
-        theme="vs-dark"
+        theme={s?.theme ?? 'vs-dark'}
         value={value}
         onChange={onChange}
         onMount={handleMount}

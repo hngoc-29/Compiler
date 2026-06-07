@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef } from 'react';
-import { X, Sparkles, Eye, Type, Code2 } from 'lucide-react';
+import { X, Sparkles, Eye, Type, Code2, Monitor, Timer } from 'lucide-react';
 import { EditorSettings } from '@/lib/editor-settings';
 
 interface SettingsPanelProps {
@@ -268,6 +268,67 @@ export default function SettingsPanel({ open, onClose, settings, onChange }: Set
             options={[2, 4, 8]}
             onChange={v => set('tabSize', v)}
           />
+
+          <Divider />
+
+          {/* ── Theme ── */}
+          <SectionHeader icon={<Monitor size={12}/>} label="Theme" />
+          <div className="space-y-1">
+            {([
+              { value: 'vs-dark', label: 'VS Dark',        desc: 'Mặc định — nền tối' },
+              { value: 'vs',      label: 'VS Light',       desc: 'Nền sáng' },
+              { value: 'hc-black',label: 'High Contrast',  desc: 'Tương phản cao, dễ đọc' },
+            ] as const).map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => set('theme', opt.value)}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded text-left transition-colors ${
+                  settings.theme === opt.value
+                    ? 'bg-indigo-600/20 border border-indigo-700/50'
+                    : 'hover:bg-gray-800/60 border border-transparent'
+                }`}
+              >
+                <div>
+                  <div className="text-xs font-medium text-gray-200">{opt.label}</div>
+                  <div className="text-[10px] text-gray-600">{opt.desc}</div>
+                </div>
+                {settings.theme === opt.value && (
+                  <div className="w-2 h-2 rounded-full bg-indigo-400 shrink-0" />
+                )}
+              </button>
+            ))}
+          </div>
+
+          <Divider />
+
+          {/* ── Execution ── */}
+          <SectionHeader icon={<Timer size={12}/>} label="Execution" />
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <div>
+                <span className="text-xs text-gray-300">Run Timeout</span>
+                <p className="text-[10px] text-gray-600">Dừng chương trình nếu chạy quá thời gian</p>
+              </div>
+              <span className="text-xs font-mono text-indigo-400 font-semibold">
+                {settings.runTimeoutMs / 1000}s
+              </span>
+            </div>
+            <div className="flex gap-1.5">
+              {[5, 10, 15, 30].map(sec => (
+                <button
+                  key={sec}
+                  onClick={() => set('runTimeoutMs', sec * 1000)}
+                  className={`flex-1 py-1 text-[11px] rounded font-mono transition-colors ${
+                    settings.runTimeoutMs === sec * 1000
+                      ? 'bg-indigo-600/70 text-indigo-200 font-semibold'
+                      : 'bg-gray-800/60 text-gray-500 hover:text-gray-300'
+                  }`}
+                >
+                  {sec}s
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div className="h-4" />
         </div>

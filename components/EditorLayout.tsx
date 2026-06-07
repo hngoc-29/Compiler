@@ -22,7 +22,11 @@ import OutputPanel, { type CompileResult } from './OutputPanel';
 import ResizableDivider from './ResizableDivider';
 import TestCasePanel    from './TestCasePanel';
 import LanguageSelector from './LanguageSelector';
+import TemplatesPanel  from './TemplatesPanel';
+import ShortcutsModal  from './ShortcutsModal';
 import SettingsPanel    from './SettingsPanel';
+
+import { addToHistory } from '@/lib/run-history';
 
 import {
   debounce, AUTOSAVE_KEY, clamp,
@@ -32,7 +36,7 @@ import { DEFAULT_TEST_CASES, type TestCase, type SavedTestCase, createTestCase, 
 import { parseGppDiagnostics, type Diagnostic } from '@/lib/cpp-suggestions';
 import { loadSettings, saveSettings, type EditorSettings } from '@/lib/editor-settings';
 import { loadPrefs,   savePrefs                            } from '@/lib/user-prefs';
-import { Copy, Check, Loader2, Code2, AlignLeft, ClipboardList, MonitorDot, Play, Zap, Gauge, Settings2, Eye } from 'lucide-react';
+import { Copy, Check, Loader2, Code2, AlignLeft, ClipboardList, MonitorDot, Play, Zap, Gauge, Settings2, Eye, LibrarySquare, Keyboard } from 'lucide-react';
 
 const MIN_PX = 120;
 
@@ -69,6 +73,8 @@ export default function EditorLayout({
   // ─── Editor Settings ─────────────────────────────────────────────────────
   const [settings, setSettings] = useState<EditorSettings>(loadSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   const handleSettingsChange = (s: EditorSettings) => {
     setSettings(s);
@@ -292,13 +298,13 @@ export default function EditorLayout({
         socket.on('compile:stdout', onStdout);
         socket.on('compile:done',   onDone);
         socket.on('compile:error',  onErr);
-        socket.emit('compile', { code: codeToRun, input: inputToRun, optimize, langId });
+        socket.emit('compile', { code: codeToRun, input: inputToRun, optimize, langId, timeoutMs: settings.runTimeoutMs });
       } else {
         // HTTP fallback
         fetch('/api/compile', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ code: codeToRun, input: inputToRun, optimize, langId }),
+          body:    JSON.stringify({ code: codeToRun, input: inputToRun, optimize, langId, timeoutMs: settings.runTimeoutMs }),
         })
           .then(res => res.ok
             ? res.json()
@@ -331,6 +337,14 @@ export default function EditorLayout({
       setOutput(result);
       setStreamStdout('');
       if (isMobile) setMobileTab('output');
+
+      // Save to run history
+      addToHistory({
+        langId, code, input: singleInput,
+        stdout: result.stdout, stderr: result.stderr,
+        compileError: result.compileError, exitCode: result.exitCode,
+        runtime: result.runtime, timedOut: result.timedOut,
+      });
 
       if (result.compileError) {
         setDiagnostics(parseGppDiagnostics(result.compileError));
@@ -563,6 +577,12 @@ export default function EditorLayout({
         if (activeTab === 'testcases') handleRunAll();
         else handleRun();
       }
+      // '?' opens shortcuts modal (not in input/textarea)
+      if (e.key === '?' && !e.ctrlKey && !e.metaKey &&
+          !(e.target instanceof HTMLInputElement) &&
+          !(e.target instanceof HTMLTextAreaElement)) {
+        setShortcutsOpen(v => !v);
+      }
     };
     window.addEventListener('keydown', fn);
     return () => window.removeEventListener('keydown', fn);
@@ -603,6 +623,20 @@ export default function EditorLayout({
         onClose={() => setSettingsOpen(false)}
         settings={settings}
         onChange={handleSettingsChange}
+      />
+
+      {/* Templates Panel */}
+      <TemplatesPanel
+        open={templatesOpen}
+        onClose={() => setTemplatesOpen(false)}
+        langId={langId}
+        onInsert={(tplCode) => setCode(tplCode)}
+      />
+
+      {/* Shortcuts Modal */}
+      <ShortcutsModal
+        open={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
       />
 
       {/* ── Shared view banner ──────────────────────────────────────────── */}
@@ -848,6 +882,20 @@ export default function EditorLayout({
                 <span className="text-[10px] text-gray-700 font-mono mr-1">
                   {code.split('\n').length}L · {code.length}C
                 </span>
+                <button
+                  onClick={() => setTemplatesOpen(true)}
+                  className="p-1 rounded hover:bg-gray-700 text-gray-600 hover:text-indigo-400 transition-colors mr-0.5"
+                  title="Templates CP (Ctrl+T)"
+                >
+                  <LibrarySquare size={12}/>
+                </button>
+                <button
+                  onClick={() => setShortcutsOpen(true)}
+                  className="p-1 rounded hover:bg-gray-700 text-gray-600 hover:text-gray-300 transition-colors mr-0.5"
+                  title="Keyboard shortcuts (?)"
+                >
+                  <Keyboard size={12}/>
+                </button>
                 <CopyButton text={code} label="code" />
               </PaneBar>
               <div className="flex-1 overflow-hidden">

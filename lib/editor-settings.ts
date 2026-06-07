@@ -5,10 +5,10 @@
 
 export interface EditorSettings {
   // Suggestions
-  suggestions: boolean;          // master toggle
-  parameterHints: boolean;       // function signature hints
-  quickSuggestions: boolean;     // inline suggestions while typing
-  snippets: boolean;             // code snippets
+  suggestions: boolean;
+  parameterHints: boolean;
+  quickSuggestions: boolean;
+  snippets: boolean;
 
   // Display
   minimap: boolean;
@@ -18,11 +18,17 @@ export interface EditorSettings {
   renderWhitespace: boolean;
   fontLigatures: boolean;
   smoothCaret: boolean;
-  showWarnings: boolean;         // show compiler warnings (yellow) in Errors tab
+  showWarnings: boolean;
+
+  // Theme
+  theme: 'vs-dark' | 'vs' | 'hc-black';
 
   // Font
-  fontSize: number;              // 11-20
-  tabSize: number;               // 2 or 4
+  fontSize: number;
+  tabSize: number;
+
+  // Execution
+  runTimeoutMs: number;   // 5000 | 10000 | 15000 | 30000
 }
 
 export const DEFAULT_SETTINGS: EditorSettings = {
@@ -40,8 +46,12 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   smoothCaret: true,
   showWarnings: true,
 
+  theme: 'vs-dark',
+
   fontSize: 13,
   tabSize: 4,
+
+  runTimeoutMs: 10_000,
 };
 
 const KEY = 'cpp-editor-settings-v1';

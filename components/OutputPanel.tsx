@@ -6,13 +6,14 @@
  * Warnings từ compiler được hiển thị màu vàng, tách biệt với errors màu đỏ.
  */
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import {
   Copy, Trash2, Terminal, AlertCircle, Info,
-  Loader2, CheckCircle, XCircle, Clock, AlertTriangle,
+  Loader2, CheckCircle, XCircle, Clock, AlertTriangle, History, RotateCcw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDuration } from '@/lib/utils';
+import { getHistory, clearHistory, type RunRecord } from '@/lib/run-history';
 
 export interface CompileResult {
   stdout:       string;
@@ -30,7 +31,7 @@ interface OutputPanelProps {
   showWarnings: boolean;
 }
 
-type TabId = 'output' | 'errors' | 'info';
+type TabId = 'output' | 'errors' | 'info' | 'history';
 
 // ─── Parse GCC/G++ diagnostic output ────────────────────────────────────────
 interface ParsedDiagnostics {
@@ -80,6 +81,19 @@ function parseCompilerOutput(raw: string): ParsedDiagnostics {
 
 export default function OutputPanel({ result, isLoading, onClear, showWarnings }: OutputPanelProps) {
   const [tab, setTab] = useState<TabId>('output');
+  const [history, setHistory] = useState<RunRecord[]>(() => getHistory());
+
+  // Refresh history when switching to the history tab
+  const handleTabClick = useCallback((id: TabId) => {
+    if (id === 'history') setHistory(getHistory());
+    setTab(id);
+  }, []);
+
+  const handleClearHistory = () => {
+    clearHistory();
+    setHistory([]);
+    toast.success('Đã xóa lịch sử');
+  };
 
   const { warnings, errors } = result?.compileError
     ? parseCompilerOutput(result.compileError)
@@ -121,9 +135,10 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings }
   };
 
   const tabs = [
-    { id: 'output' as TabId,  label: 'Output', icon: <Terminal    size={11}/> },
-    { id: 'errors' as TabId,  label: 'Errors', icon: <AlertCircle size={11}/>, badge: visibleIssueCount || undefined },
-    { id: 'info'   as TabId,  label: 'Info',   icon: <Info        size={11}/> },
+    { id: 'output'  as TabId, label: 'Output',  icon: <Terminal    size={11}/> },
+    { id: 'errors'  as TabId, label: 'Errors',  icon: <AlertCircle size={11}/>, badge: visibleIssueCount || undefined },
+    { id: 'info'    as TabId, label: 'Info',    icon: <Info        size={11}/> },
+    { id: 'history' as TabId, label: 'History', icon: <History     size={11}/>, badge: history.length || undefined, badgeColor: 'bg-gray-600' },
   ];
 
   return (
@@ -133,7 +148,7 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings }
         <div className="flex items-center gap-0.5">
           <span className="dot dot-red mr-2" />
           {tabs.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)}
+            <button key={t.id} onClick={() => handleTabClick(t.id)}
               className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] rounded transition-colors ${
                 tab === t.id
                   ? 'bg-gray-700/70 text-gray-100'
@@ -142,7 +157,8 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings }
               {t.icon} {t.label}
               {t.badge !== undefined && (
                 <span className={`px-1 rounded-full text-white text-[9px] leading-4 ${
-                  t.id === 'errors' && errors.length === 0 ? 'bg-yellow-600' : 'bg-red-600'
+                  t.id === 'errors' && errors.length === 0 ? 'bg-yellow-600'
+                  : (t as {badgeColor?: string}).badgeColor ?? 'bg-red-600'
                 }`}>
                   {t.badge}
                 </span>
@@ -259,6 +275,62 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings }
             <Row label="stdout size" v={`${result.stdout.length} chars`} vc="text-gray-500"/>
             <Row label="stderr size" v={`${result.stderr.length} chars`} vc="text-gray-500"/>
             <Row label="Warnings"    v={warnings.length > 0 ? `${warnings.length} (${showWarnings ? 'hiện' : 'ẩn'})` : 'Không có'} vc={warnings.length > 0 ? 'text-yellow-400' : 'text-gray-500'}/>
+          </div>
+        )}
+        {!isLoading && tab === 'history' && (
+          <div className="flex flex-col h-full">
+            <div className="flex items-center justify-between px-3 pt-3 pb-2 shrink-0">
+              <span className="text-[11px] text-gray-500">
+                {history.length} lần chạy gần nhất (phiên này)
+              </span>
+              {history.length > 0 && (
+                <button onClick={handleClearHistory}
+                  className="flex items-center gap-1 text-[10px] text-gray-600 hover:text-red-400 transition-colors">
+                  <RotateCcw size={10}/> Xóa
+                </button>
+              )}
+            </div>
+            {history.length === 0 ? (
+              <div className="flex flex-col items-center justify-center flex-1 text-gray-700 gap-2">
+                <History size={24} className="opacity-30"/>
+                <p className="text-xs">Chưa có lần chạy nào</p>
+              </div>
+            ) : (
+              <div className="flex-1 overflow-auto px-3 pb-3 space-y-2">
+                {history.map((rec) => {
+                  const hasError = !!(rec.compileError || (rec.exitCode !== 0 && !rec.timedOut));
+                  const statusColor = rec.timedOut ? 'text-yellow-400'
+                    : hasError ? 'text-red-400' : 'text-green-400';
+                  const statusIcon = rec.timedOut ? <Clock size={10}/>
+                    : hasError ? <XCircle size={10}/> : <CheckCircle size={10}/>;
+                  return (
+                    <div key={rec.id} className="bg-gray-800/30 rounded p-2.5 text-[11px] space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <div className={`flex items-center gap-1 font-medium ${statusColor}`}>
+                          {statusIcon}
+                          {rec.timedOut ? 'Timeout' : hasError ? 'Error' : 'OK'}
+                        </div>
+                        <div className="flex items-center gap-2 text-gray-600">
+                          <span className="font-mono">{rec.langId}</span>
+                          <span>{rec.timedOut ? '⏱' : formatDuration(rec.runtime)}</span>
+                          <span>{new Date(rec.ts).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                        </div>
+                      </div>
+                      {rec.stdout && (
+                        <pre className="text-emerald-400/80 bg-gray-900/50 rounded px-2 py-1 text-[10px] truncate max-h-12 overflow-hidden">
+                          {rec.stdout.slice(0, 200)}
+                        </pre>
+                      )}
+                      {rec.compileError && (
+                        <pre className="text-red-400/80 bg-red-950/20 rounded px-2 py-1 text-[10px] truncate">
+                          {rec.compileError.split('\n')[0].slice(0, 120)}
+                        </pre>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>
