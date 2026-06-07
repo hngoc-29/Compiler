@@ -2,7 +2,7 @@ name: Sync to Hugging Face Spaces
 
 on:
   push:
-    branches: [huggingface] # Kích hoạt tự động khi bạn push code vào nhánh huggingface
+    branches: [huggingface]
 
 jobs:
   deploy:
@@ -14,15 +14,51 @@ jobs:
           fetch-depth: 0
           lfs: true
 
-      - name: Push to Hugging Face
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install huggingface_hub
+        run: pip install huggingface_hub
+
+      - name: Upload to Hugging Face Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_USERNAME: ${{ secrets.HF_USERNAME }}
-          SPACE_NAME: "Compiler" # Đã chuẩn hóa theo đúng tên hiển thị trên giao diện của bạn
+          SPACE_NAME: "Compiler"
         run: |
-          git config --global user.email "lmtcv1.9@gmail.com"
-          git config --global user.name "hn"
-          git remote add hf https://$HF_USERNAME:$HF_TOKEN@huggingface.co/spaces/$HF_USERNAME/$SPACE_NAME
-          
-          # Đẩy mã nguồn từ nhánh phụ 'huggingface' của GitHub sang nhánh 'main' bắt buộc của Hugging Face
-          git push --force hf huggingface:main
+          python - << 'EOF'
+          import os, sys, time
+          from huggingface_hub import HfApi
+
+          api    = HfApi(token=os.environ["HF_TOKEN"])
+          repo   = f"{os.environ['HF_USERNAME']}/{os.environ['SPACE_NAME']}"
+
+          ignore = [
+            ".git*", ".github", "node_modules", ".next",
+            "*.log", ".env*",
+          ]
+
+          for attempt in range(1, 6):
+            try:
+              print(f"Attempt {attempt}...")
+              api.upload_folder(
+                folder_path   = ".",
+                repo_id       = repo,
+                repo_type     = "space",
+                ignore_patterns = ignore,
+                commit_message  = f"Deploy from GitHub Actions",
+              )
+              print("Upload succeeded!")
+              sys.exit(0)
+            except Exception as e:
+              print(f"Error: {e}")
+              if attempt < 5:
+                wait = 30 * (2 ** (attempt - 1))
+                print(f"Waiting {wait}s...")
+                time.sleep(wait)
+
+          print("All attempts failed.")
+          sys.exit(1)
+          EOF
