@@ -34,7 +34,7 @@ export default function ShareButton({ code, input, testCases }: ShareButtonProps
 
     if (payloadBytes > SHARE_WARN_BYTES) {
       toast.warning(
-        `Dữ liệu khá lớn (${formatBytes(payloadBytes)}). URL có thể rất dài.`,
+        `Data is quite large (${formatBytes(payloadBytes)}). URL may be very long.`,
         { duration: 4000 }
       );
     }
@@ -51,13 +51,13 @@ export default function ShareButton({ code, input, testCases }: ShareButtonProps
       setShareUrl(url);
       await navigator.clipboard.writeText(url);
       setCopied(true);
-      toast.success('Đã tạo và copy share link!', {
-        description: `${url.length} ký tự · nén từ ${formatBytes(payloadBytes)}`,
+      toast.success('Share link created and copied!', {
+        description: `${url.length} chars · compressed from ${formatBytes(payloadBytes)}`,
       });
       setTimeout(() => setCopied(false), 3000);
     } catch (err) {
       console.error('[ShareButton]', err);
-      toast.error('Tạo link thất bại. Thử lại sau.');
+      toast.error('Failed to create link. Try again.');
     } finally {
       setIsGenerating(false);
     }
@@ -68,9 +68,9 @@ export default function ShareButton({ code, input, testCases }: ShareButtonProps
     try {
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
-      toast.success('Đã copy link!');
+      toast.success('Link copied!');
       setTimeout(() => setCopied(false), 2000);
-    } catch { toast.error('Không thể copy'); }
+    } catch { toast.error('Cannot copy'); }
   };
 
   return (
@@ -78,7 +78,7 @@ export default function ShareButton({ code, input, testCases }: ShareButtonProps
       <button
         onClick={handleShare}
         disabled={isGenerating}
-        title="Tạo share link (nén fflate)"
+        title="Create share link (fflate compressed)"
         className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-700 hover:bg-violet-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium rounded-md transition-colors">
         {isGenerating
           ? <Loader2 size={12} className="animate-spin"/>

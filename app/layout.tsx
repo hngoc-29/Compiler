@@ -1,15 +1,16 @@
 import type { Metadata } from 'next';
 import { Toaster } from 'sonner';
 import './globals.css';
+import { I18nProvider } from '@/lib/i18n-context';
 
 export const metadata: Metadata = {
   title: 'CppEditor – C++ Online Compiler',
-  description: 'Biên dịch C++20 trực tuyến. 3 pane có thể resize. Share link bằng fflate compression.',
+  description: 'Online C++20 compiler with test cases, share links, and IntelliSense.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="vi" className="dark" suppressHydrationWarning>
+    <html lang="en" className="dark" suppressHydrationWarning>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
@@ -19,7 +20,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="bg-bg-base text-gray-100 antialiased overflow-hidden">
-        {children}
+        <I18nProvider>
+          {children}
+        </I18nProvider>
         <Toaster
           theme="dark"
           position="bottom-right"

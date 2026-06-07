@@ -39,8 +39,8 @@ export default function InputDrawer({ open, value, onChange, onClose }: InputDra
   }, [open]);
 
   const handleCopy = async () => {
-    try { await navigator.clipboard.writeText(value); toast.success('Đã copy input!'); }
-    catch { toast.error('Không thể copy'); }
+    try { await navigator.clipboard.writeText(value); toast.success('Input copied!'); }
+    catch { toast.error('Cannot copy'); }
   };
 
   const handleClear = () => { onChange(''); taRef.current?.focus(); };
@@ -134,12 +134,12 @@ export default function InputDrawer({ open, value, onChange, onClose }: InputDra
             </button>
             <button onClick={handleClear}
               className="p-1 rounded hover:bg-gray-700 text-gray-600 hover:text-gray-300 transition-colors"
-              title="Xóa">
+              title="Clear">
               <Trash2 size={13} />
             </button>
             <button onClick={onClose}
               className="p-1 rounded hover:bg-gray-700 text-gray-500 hover:text-gray-200 transition-colors ml-1"
-              title="Đóng">
+              title="Close">
               <X size={15} />
             </button>
           </div>
@@ -151,7 +151,7 @@ export default function InputDrawer({ open, value, onChange, onClose }: InputDra
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={"Nhập stdin ở đây...\n(nội dung sẽ truyền vào cin)"}
+          placeholder={"Enter stdin here...\n(content will be passed to cin)"}
           spellCheck={false}
           autoComplete="off"
           autoCorrect="off"

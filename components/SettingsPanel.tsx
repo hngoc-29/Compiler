@@ -9,6 +9,7 @@
 import { useEffect, useRef } from 'react';
 import { X, Sparkles, Eye, Type, Code2, Monitor, Timer } from 'lucide-react';
 import { EditorSettings } from '@/lib/editor-settings';
+import { useI18n } from '@/lib/i18n-context';
 
 interface SettingsPanelProps {
   open:     boolean;
@@ -105,6 +106,8 @@ function SelectRow({ label, value, options, onChange }: {
 }
 
 export default function SettingsPanel({ open, onClose, settings, onChange }: SettingsPanelProps) {
+  const { t } = useI18n();
+  const st = t.settings;
   const panelRef = useRef<HTMLDivElement>(null);
 
   const set = <K extends keyof EditorSettings>(key: K, val: EditorSettings[K]) => {
@@ -232,7 +235,7 @@ export default function SettingsPanel({ open, onClose, settings, onChange }: Set
           />
           <ToggleRow
             label="Show Warnings"
-            description="Hiển thị compiler warnings (màu vàng) trong tab Errors — tắt để chỉ thấy errors"
+            description={st.showWarningsDesc}
             checked={settings.showWarnings}
             onChange={v => set('showWarnings', v)}
           />
@@ -274,11 +277,7 @@ export default function SettingsPanel({ open, onClose, settings, onChange }: Set
           {/* ── Theme ── */}
           <SectionHeader icon={<Monitor size={12}/>} label="Theme" />
           <div className="space-y-1">
-            {([
-              { value: 'vs-dark', label: 'VS Dark',        desc: 'Mặc định — nền tối' },
-              { value: 'vs',      label: 'VS Light',       desc: 'Nền sáng' },
-              { value: 'hc-black',label: 'High Contrast',  desc: 'Tương phản cao, dễ đọc' },
-            ] as const).map(opt => (
+            {st.themes.map(opt => (
               <button
                 key={opt.value}
                 onClick={() => set('theme', opt.value)}
@@ -307,7 +306,7 @@ export default function SettingsPanel({ open, onClose, settings, onChange }: Set
             <div className="flex items-center justify-between mb-1.5">
               <div>
                 <span className="text-xs text-gray-300">Run Timeout</span>
-                <p className="text-[10px] text-gray-600">Dừng chương trình nếu chạy quá thời gian</p>
+                <p className="text-[10px] text-gray-600">{st.runTimeoutDesc}</p>
               </div>
               <span className="text-xs font-mono text-indigo-400 font-semibold">
                 {settings.runTimeoutMs / 1000}s

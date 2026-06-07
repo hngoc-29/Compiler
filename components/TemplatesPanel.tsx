@@ -8,6 +8,7 @@
 import { useState, useMemo } from 'react';
 import { X, Search, Code2, ChevronRight } from 'lucide-react';
 import { TEMPLATES, TEMPLATE_CATEGORIES, getTemplatesByLang, type Template } from '@/lib/templates';
+import { useI18n } from '@/lib/i18n-context';
 import { toast } from 'sonner';
 
 interface TemplatesPanelProps {
@@ -18,22 +19,24 @@ interface TemplatesPanelProps {
 }
 
 export default function TemplatesPanel({ open, onClose, langId, onInsert }: TemplatesPanelProps) {
+  const { t } = useI18n();
+  const tp = t.templatesPanel;
   const [search, setSearch]     = useState('');
-  const [category, setCategory] = useState<string>('Tất cả');
+  const [category, setCategory] = useState<string>('All');
   const [preview, setPreview]   = useState<Template | null>(null);
 
   const available = useMemo(() => getTemplatesByLang(langId), [langId]);
 
   const filtered = useMemo(() => {
     return available.filter(t => {
-      const matchCat = category === 'Tất cả' || t.category === category;
+      const matchCat = category === 'All' || t.category === category;
       const matchQ   = !search || t.label.toLowerCase().includes(search.toLowerCase())
         || t.description.toLowerCase().includes(search.toLowerCase());
       return matchCat && matchQ;
     });
   }, [available, search, category]);
 
-  const categories = ['Tất cả', ...Array.from(new Set(available.map(t => t.category)))];
+  const categories = ['All', ...Array.from(new Set(available.map(t => t.category)))];
 
   const handleInsert = (t: Template) => {
     onInsert(t.code);
@@ -81,7 +84,7 @@ export default function TemplatesPanel({ open, onClose, langId, onInsert }: Temp
             <Search size={12} className="text-gray-600 shrink-0" />
             <input
               type="text"
-              placeholder="Tìm template..."
+              placeholder={tp.searchPlaceholder}
               value={search}
               onChange={e => setSearch(e.target.value)}
               className="bg-transparent text-xs text-gray-300 outline-none w-full placeholder-gray-600"
@@ -146,7 +149,7 @@ export default function TemplatesPanel({ open, onClose, langId, onInsert }: Temp
                     onClick={() => handleInsert(t)}
                     className="mt-2 w-full py-1.5 text-[11px] font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded transition-colors"
                   >
-                    Chèn vào Editor
+                    {tp.insertButton}
                   </button>
                 </div>
               )}

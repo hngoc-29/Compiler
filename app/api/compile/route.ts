@@ -12,23 +12,23 @@ export async function POST(req: NextRequest) {
     catch { return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 }); }
 
     if (typeof body !== 'object' || body === null)
-      return NextResponse.json({ error: 'Body phải là JSON object' }, { status: 400 });
+      return NextResponse.json({ error: 'Body must be a JSON object' }, { status: 400 });
 
     const { code, input = '', optimize = false, langId = 'cpp20' } = body as {
       code: unknown; input?: unknown; optimize?: unknown; langId?: unknown;
     };
 
     if (typeof code !== 'string' || code.trim() === '')
-      return NextResponse.json({ error: 'Trường "code" là bắt buộc' }, { status: 400 });
+      return NextResponse.json({ error: 'Field "code" is required' }, { status: 400 });
 
     if (typeof input !== 'string')
-      return NextResponse.json({ error: 'Trường "input" phải là string' }, { status: 400 });
+      return NextResponse.json({ error: 'Field "input" must be a string' }, { status: 400 });
 
     if (Buffer.byteLength(code, 'utf-8') > MAX_CODE_BYTES)
-      return NextResponse.json({ error: `Code quá lớn (tối đa ${MAX_CODE_BYTES / 1024}KB)` }, { status: 413 });
+      return NextResponse.json({ error: `Code too large (max ${MAX_CODE_BYTES / 1024}KB)` }, { status: 413 });
 
     if (Buffer.byteLength(input, 'utf-8') > MAX_INPUT_BYTES)
-      return NextResponse.json({ error: `Input quá lớn (tối đa ${MAX_INPUT_BYTES / 1024}KB)` }, { status: 413 });
+      return NextResponse.json({ error: `Input too large (max ${MAX_INPUT_BYTES / 1024}KB)` }, { status: 413 });
 
     const result = await compileAndRun(
       code, input, RUN_TIMEOUT_MS,

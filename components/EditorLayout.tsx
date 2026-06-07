@@ -37,6 +37,8 @@ import { parseGppDiagnostics, type Diagnostic } from '@/lib/cpp-suggestions';
 import { loadSettings, saveSettings, type EditorSettings } from '@/lib/editor-settings';
 import { loadPrefs,   savePrefs                            } from '@/lib/user-prefs';
 import { Copy, Check, Loader2, Code2, AlignLeft, ClipboardList, MonitorDot, Play, Zap, Gauge, Settings2, Eye, LibrarySquare, Keyboard } from 'lucide-react';
+import { useI18n } from '@/lib/i18n-context';
+import { SUPPORTED_LANGS, LANG_NAMES } from '@/lib/i18n';
 
 const MIN_PX = 120;
 
@@ -50,6 +52,9 @@ interface EditorLayoutProps {
 export default function EditorLayout({
   initialCode, initialInput, initialTestCases, isSharedView = false,
 }: EditorLayoutProps) {
+
+  const { t } = useI18n();
+  const el = t.editorLayout;
 
   // ─── User preferences (lang, optimize, panels, activeTab) ──────────────────
   // Loaded once at mount; individual state setters persist on every change.
@@ -324,7 +329,7 @@ export default function EditorLayout({
     setStreamStdout('');
     setDiagnostics([]);
     setPanels(prev => ({ ...prev, output: true }));
-    toast.info('⚙ Đang compile…', { id: 'run', duration: 15000 });
+    toast.info(el.compilingToast, { id: 'run', duration: 15000 });
 
     let buf = '';
     try {
@@ -348,16 +353,16 @@ export default function EditorLayout({
 
       if (result.compileError) {
         setDiagnostics(parseGppDiagnostics(result.compileError));
-        toast.error('❌ Compile error!');
+        toast.error(el.compileError);
       } else {
         setDiagnostics([]);
-        if (result.timedOut)            toast.warning('⏱ Timeout!');
+        if (result.timedOut)            toast.warning(el.timeoutWarning);
         else if (result.exitCode !== 0) toast.warning(`⚠️ Exit ${result.exitCode}`);
         else                            toast.success(`✅ OK · ${result.runtime}ms`);
       }
     } catch (err) {
       toast.dismiss('run');
-      toast.error(err instanceof Error ? err.message : 'Không thể kết nối server.');
+      toast.error(err instanceof Error ? err.message : el.cannotConnect);
     } finally {
       setIsCompiling(false);
     }
@@ -426,9 +431,9 @@ export default function EditorLayout({
 
         const onStatus = (s: string) => {
           if (s === 'compiling') {
-            toast.info('⚙ Đang compile…', { id: 'batch', duration: 60_000 });
+            toast.info(el.batchCompiling, { id: 'batch', duration: 60_000 });
           } else if (s === 'running') {
-            toast.info(`▶ Chạy ${snapshot.length} test cases…`, { id: 'batch', duration: 60_000 });
+            toast.info(el.batchRunning(snapshot.length), { id: 'batch', duration: 60_000 });
             // Đánh dấu test đầu tiên là đang chạy
             if (snapshot[0])
               setTestCases(prev => prev.map(t =>
@@ -493,7 +498,7 @@ export default function EditorLayout({
 
         const onErr = (e: { message?: string }) => {
           toast.dismiss('batch');
-          toast.error(e?.message || 'Lỗi không xác định');
+          toast.error(e?.message || 'Unknown error');
           off(); resolve();
         };
 
@@ -643,7 +648,7 @@ export default function EditorLayout({
       {isSharedView && (
         <div className="flex items-center gap-2 px-3 py-1 bg-violet-950/60 border-b border-violet-800/40 text-violet-400 text-[11px] shrink-0 z-30">
           <Eye size={11} className="shrink-0" />
-          <span>Đang xem code được chia sẻ — thay đổi sẽ <strong>không</strong> được lưu. Về <a href="/" className="underline hover:text-violet-300">trang chính</a> để soạn code mới.</span>
+          <span>{el.sharedBanner} <a href="/" className="underline hover:text-violet-300">main page</a>.</span>
         </div>
       )}
       {/* ── MOBILE header — chỉ cần Logo + Lang + Optimize + Settings ── */}
@@ -660,7 +665,7 @@ export default function EditorLayout({
           {/* Optimize toggle */}
           <button
             onClick={() => { setOptimize(v => { const next = !v; savePrefs({ ...loadPrefs(), optimize: next }); return next; }); }}
-            title={optimize ? 'O2 — nhấn để tắt' : 'Fast (-O0) — nhấn để bật O2'}
+            title={optimize ? 'O2 — click to disable' : 'Fast (-O0) — click to enable O2'}
             className="flex items-center justify-center rounded-md transition-colors"
             style={{
               width: 36, height: 36,
@@ -673,7 +678,7 @@ export default function EditorLayout({
           {/* Settings */}
           <button
             onClick={() => setSettingsOpen(true)}
-            title="Cài đặt editor"
+            title={el.editorSettings}
             className="flex items-center justify-center rounded-md transition-colors"
             style={{ width: 36, height: 36, background: 'rgba(255,255,255,0.05)', color: '#6b7280' }}
           >
@@ -722,6 +727,7 @@ export default function EditorLayout({
             onOpenSettings={() => setSettingsOpen(true)}
             testCases={testCases}
           />
+          <LangToggle />
         </header>
       )}
 
@@ -973,6 +979,7 @@ function SingleInputEditor({ value, onChange, fontSize = 13 }: {
   onChange: (v: string) => void;
   fontSize?: number;
 }) {
+  const { t } = useI18n();
   const taRef = useRef<HTMLTextAreaElement>(null);
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key !== 'Tab') return;
@@ -988,7 +995,7 @@ function SingleInputEditor({ value, onChange, fontSize = 13 }: {
       value={value}
       onChange={e => onChange(e.target.value)}
       onKeyDown={handleKeyDown}
-      placeholder={"Nhập stdin ở đây...\n(nội dung sẽ truyền vào cin)"}
+      placeholder={t.editorLayout.inputPlaceholder}
       spellCheck={false}
       autoComplete="off"
       style={{ fontSize: `${fontSize}px` }}
@@ -1020,9 +1027,9 @@ function CopyButton({ text, label }: { text: string; label: string }) {
     try {
       await navigator.clipboard.writeText(text);
       setDone(true);
-      toast.success(`Đã copy ${label}!`);
+      toast.success(`Copied ${label}!`);
       setTimeout(() => setDone(false), 2000);
-    } catch { toast.error('Không thể copy'); }
+    } catch { toast.error('Cannot copy'); }
   };
   return (
     <button onClick={handle}
@@ -1030,5 +1037,29 @@ function CopyButton({ text, label }: { text: string; label: string }) {
       title={`Copy ${label}`}>
       {done ? <Check size={11} className="text-green-400" /> : <Copy size={11} />}
     </button>
+  );
+}
+
+// ── LangToggle ────────────────────────────────────────────────────────────
+// Reads SUPPORTED_LANGS dynamically — new languages appear automatically.
+function LangToggle() {
+  const { lang, setLang } = useI18n();
+  return (
+    <div className="flex items-center gap-0.5 ml-1">
+      {SUPPORTED_LANGS.map(l => (
+        <button
+          key={l}
+          onClick={() => setLang(l)}
+          className={`px-2 py-1 text-[10px] rounded font-mono transition-colors ${
+            lang === l
+              ? 'bg-indigo-600/70 text-indigo-200 font-semibold'
+              : 'text-gray-600 hover:text-gray-400'
+          }`}
+          title={LANG_NAMES[l]}
+        >
+          {l.toUpperCase()}
+        </button>
+      ))}
+    </div>
   );
 }

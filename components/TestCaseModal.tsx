@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, Save, Trash2 } from 'lucide-react';
 import type { TestCase } from '@/lib/testcases';
+import { useI18n } from '@/lib/i18n-context';
 
 interface Props {
   testCase: TestCase | null;
@@ -17,6 +18,8 @@ interface Props {
 }
 
 export default function TestCaseModal({ testCase, onSave, onDelete, onClose }: Props) {
+  const { t } = useI18n();
+  const tcm = t.testCaseModal;
   const [label,          setLabel]          = useState('');
   const [input,          setInput]          = useState('');
   const [expectedOutput, setExpectedOutput] = useState('');
@@ -100,7 +103,7 @@ export default function TestCaseModal({ testCase, onSave, onDelete, onClose }: P
             <textarea
               value={input}
               onChange={e => setInput(e.target.value)}
-              placeholder={"Nhập input cho test case này...\n(sẽ được truyền vào cin / sys.stdin)"}
+              placeholder={tcm.inputPlaceholder}
               spellCheck={false}
               autoComplete="off"
               className="flex-1 p-4 resize-none text-sm font-mono text-gray-200 outline-none"
@@ -120,13 +123,13 @@ export default function TestCaseModal({ testCase, onSave, onDelete, onClose }: P
                 expected output
               </span>
               <span className="text-[10px] text-gray-700 ml-auto">
-                (để trống = không chấm điểm)
+                {tcm.emptyOutputNote}
               </span>
             </div>
             <textarea
               value={expectedOutput}
               onChange={e => setExpectedOutput(e.target.value)}
-              placeholder={"Nhập output mong muốn...\n(dùng để so sánh Pass/Fail sau khi chạy)"}
+              placeholder={tcm.outputPlaceholder}
               spellCheck={false}
               autoComplete="off"
               className="flex-1 p-4 resize-none text-sm font-mono text-emerald-300/80 outline-none"

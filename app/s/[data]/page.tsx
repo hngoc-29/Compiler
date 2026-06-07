@@ -8,13 +8,16 @@ import { use, useEffect, useState } from 'react';
 import { Loader2, AlertTriangle, Home } from 'lucide-react';
 import EditorLayout from '@/components/EditorLayout';
 import { type SavedTestCase } from '@/lib/testcases';
+import { I18nProvider, useI18n } from '@/lib/i18n-context';
 
 interface PageProps {
   params: Promise<{ data: string }>;
 }
 
-export default function SharePage({ params }: PageProps) {
+function SharePageInner({ params }: PageProps) {
   const { data } = use(params);
+  const { t } = useI18n();
+  const sp = t.sharedPage;
   const [initialCode,       setInitialCode]       = useState<string | undefined>(undefined);
   const [initialInput,      setInitialInput]      = useState<string | undefined>(undefined);
   const [initialTestCases,  setInitialTestCases]  = useState<SavedTestCase[] | undefined>(undefined);
@@ -22,7 +25,7 @@ export default function SharePage({ params }: PageProps) {
   const [isDecoding, setIsDecoding] = useState(true);
 
   useEffect(() => {
-    if (!data) { setError('Không có dữ liệu trong URL.'); setIsDecoding(false); return; }
+    if (!data) { setError('No data found in URL.'); setIsDecoding(false); return; }
 
     const decode = async () => {
       try {
@@ -30,7 +33,7 @@ export default function SharePage({ params }: PageProps) {
         const json = await decompressFromBase64Url(data);
         const parsed = JSON.parse(json);
         if (typeof parsed !== 'object' || parsed === null)
-          throw new Error('Dữ liệu không đúng định dạng');
+          throw new Error('Invalid data format');
 
         setInitialCode(typeof parsed.code === 'string' ? parsed.code : '');
 
@@ -45,7 +48,7 @@ export default function SharePage({ params }: PageProps) {
         }
       } catch (err) {
         console.error('[SharePage] Decode error:', err);
-        setError('Không thể giải mã link. Link có thể đã hỏng hoặc không hợp lệ.');
+        setError('Cannot decode link. The link may be corrupted or invalid.');
       } finally {
         setIsDecoding(false);
       }
@@ -57,7 +60,7 @@ export default function SharePage({ params }: PageProps) {
   if (isDecoding) return (
     <div className="flex flex-col items-center justify-center h-screen bg-bg-base text-gray-400 gap-4">
       <Loader2 size={28} className="animate-spin text-indigo-400" />
-      <p className="text-sm">Đang giải nén dữ liệu từ share link...</p>
+      <p className="text-sm">{sp.decoding}</p>
     </div>
   );
 
@@ -65,12 +68,12 @@ export default function SharePage({ params }: PageProps) {
     <div className="flex flex-col items-center justify-center h-screen bg-bg-base gap-5 p-8">
       <AlertTriangle size={36} className="text-red-400" />
       <div className="text-center">
-        <h2 className="text-base font-semibold text-red-400 mb-1">Lỗi giải mã</h2>
+        <h2 className="text-base font-semibold text-red-400 mb-1">{sp.decodeError}</h2>
         <p className="text-xs text-gray-500 max-w-sm">{error}</p>
       </div>
       <a href="/"
         className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-sm transition-colors">
-        <Home size={14} /> Về trang chính
+        <Home size={14} /> {sp.goHome}
       </a>
     </div>
   );
@@ -82,5 +85,13 @@ export default function SharePage({ params }: PageProps) {
       initialTestCases={initialTestCases}
       isSharedView
     />
+  );
+}
+
+export default function SharePage(props: PageProps) {
+  return (
+    <I18nProvider>
+      <SharePageInner {...props} />
+    </I18nProvider>
   );
 }

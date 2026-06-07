@@ -17,6 +17,7 @@ import type { TestCase } from '@/lib/testcases';
 import { createTestCase, compareOutput, exportTestCasesToJson, importTestCasesFromJson, duplicateTestCase } from '@/lib/testcases';
 import TestCaseModal from './TestCaseModal';
 import { formatDuration, downloadTextFile } from '@/lib/utils';
+import { useI18n } from '@/lib/i18n-context';
 
 interface Props {
   testCases:    TestCase[];
@@ -61,6 +62,8 @@ function VerdictBadge({ tc }: { tc: TestCase }) {
 export default function TestCasePanel({
   testCases, onUpdate, onRunAll, onRunOne, isRunningAll, runningId,
 }: Props) {
+  const { t } = useI18n();
+  const tcp = t.testCasePanel;
   const [editingTc, setEditingTc]   = useState<TestCase | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -96,16 +99,16 @@ export default function TestCasePanel({
     const next = [...testCases];
     next.splice(idx + 1, 0, duped);
     onUpdate(next);
-    toast.success(`Đã duplicate "${tc.label}"`);
+    toast.success(tcp.duplicated(tc.label));
   };
 
   // ─── Export ──────────────────────────────────────────────────────────────
   const handleExport = () => {
     try {
       downloadTextFile(exportTestCasesToJson(testCases), 'testcases.json');
-      toast.success(`Đã export ${testCases.length} test case${testCases.length > 1 ? 's' : ''}!`);
+      toast.success(tcp.exportedN(testCases.length));
     } catch {
-      toast.error('Không thể export test cases.');
+      toast.error(tcp.exportError);
     }
   };
 
@@ -120,9 +123,9 @@ export default function TestCasePanel({
         const parsed: unknown = JSON.parse(json);
         const imported = importTestCasesFromJson(parsed);
         onUpdate(imported);
-        toast.success(`Đã import ${imported.length} test case${imported.length > 1 ? 's' : ''}!`);
+        toast.success(tcp.importedN(imported.length));
       } catch {
-        toast.error('File không hợp lệ. Cần JSON: [{label, input, expectedOutput}]');
+        toast.error(tcp.importError);
       }
     };
     reader.readAsText(file);
@@ -169,7 +172,7 @@ export default function TestCasePanel({
             <button
               onClick={handleReset}
               className="p-1.5 text-gray-600 hover:text-gray-300 hover:bg-gray-700/50 rounded transition-colors"
-              title="Reset tất cả kết quả về idle"
+              title={tcp.resetResults}
             >
               <RotateCcw size={11} />
             </button>
@@ -194,7 +197,7 @@ export default function TestCasePanel({
           <button
             onClick={addTestCase}
             className="flex items-center gap-1 px-2 py-1 text-[11px] text-gray-400 hover:text-gray-200 hover:bg-gray-700/50 rounded transition-colors"
-            title="Thêm test case"
+            title={tcp.addTestCase}
           >
             <Plus size={11} /> Add
           </button>
@@ -202,7 +205,7 @@ export default function TestCasePanel({
             onClick={onRunAll}
             disabled={isRunningAll}
             className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold bg-indigo-600/80 hover:bg-indigo-600 disabled:opacity-50 text-white rounded transition-colors"
-            title="Chạy tất cả"
+            title={tcp.runAll}
           >
             {isRunningAll
               ? <Loader2 size={11} className="animate-spin" />
@@ -250,7 +253,7 @@ export default function TestCasePanel({
                   <button
                     onClick={() => setEditingTc(tc)}
                     className="p-1 rounded hover:bg-gray-700 text-gray-600 hover:text-gray-300 transition-colors"
-                    title="Sửa test case"
+                    title={tcp.editTestCase}
                   >
                     <Pencil size={10} />
                   </button>
@@ -265,7 +268,7 @@ export default function TestCasePanel({
                     onClick={() => onRunOne(tc)}
                     disabled={!!runningId}
                     className="p-1 rounded hover:bg-indigo-600/50 text-gray-600 hover:text-indigo-300 disabled:opacity-50 transition-colors"
-                    title="Chạy test này"
+                    title={tcp.runThis}
                   >
                     <Play size={10} />
                   </button>

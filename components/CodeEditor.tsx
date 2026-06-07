@@ -12,6 +12,7 @@ import dynamic from 'next/dynamic';
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { Loader2, Undo2, Redo2, Copy, Check } from 'lucide-react';
 import type { EditorSettings } from '@/lib/editor-settings';
+import { useI18n } from '@/lib/i18n-context';
 
 // Track globally so we only register Monaco providers once (they persist across mounts)
 const _registeredLangs = new Set<string>();
@@ -175,6 +176,8 @@ export default function CodeEditor({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const monacoRef    = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const { t } = useI18n();
+  const ce = t.codeEditor;
 
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
@@ -410,7 +413,7 @@ export default function CodeEditor({
               <button
                 onPointerDown={(e) => e.preventDefault()} // Keep editor focused — selection stays intact
                 onClick={handleCopySel}
-                title="Copy vùng đã chọn"
+                title={ce.copySelection}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 3,
                   height: 26, padding: '0 8px', borderRadius: 6,
@@ -434,7 +437,7 @@ export default function CodeEditor({
               <button
                 onPointerDown={(e) => e.preventDefault()} // Keep editor focused
                 onClick={handleCopyAll}
-                title="Copy toàn bộ code"
+                title={ce.copyAll}
                 style={{
                   ...btnStyle(true),
                   color: copyDone ? '#4ade80' : undefined,

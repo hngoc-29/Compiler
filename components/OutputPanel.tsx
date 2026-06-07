@@ -14,6 +14,7 @@ import {
 import { toast } from 'sonner';
 import { formatDuration } from '@/lib/utils';
 import { getHistory, clearHistory, type RunRecord } from '@/lib/run-history';
+import { useI18n } from '@/lib/i18n-context';
 
 export interface CompileResult {
   stdout:       string;
@@ -80,6 +81,8 @@ function parseCompilerOutput(raw: string): ParsedDiagnostics {
 }
 
 export default function OutputPanel({ result, isLoading, onClear, showWarnings }: OutputPanelProps) {
+  const { t } = useI18n();
+  const ot = t.output;
   const [tab, setTab] = useState<TabId>('output');
   const [history, setHistory] = useState<RunRecord[]>(() => getHistory());
 
@@ -92,7 +95,7 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings }
   const handleClearHistory = () => {
     clearHistory();
     setHistory([]);
-    toast.success('Đã xóa lịch sử');
+    toast.success('History cleared');
   };
 
   const { warnings, errors } = result?.compileError
@@ -117,8 +120,8 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings }
     } else {
       text = `Exit: ${result.exitCode}\nRuntime: ${formatDuration(result.runtime)}\nTimeout: ${result.timedOut}`;
     }
-    try { await navigator.clipboard.writeText(text); toast.success('Đã copy!'); }
-    catch { toast.error('Không thể copy'); }
+    try { await navigator.clipboard.writeText(text); toast.success('Copied!'); }
+    catch { toast.error('Cannot copy'); }
   };
 
   const statusBadge = () => {
@@ -177,7 +180,7 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings }
           )}
           <button onClick={onClear}
             className="p-1 rounded hover:bg-gray-700 text-gray-600 hover:text-gray-300 transition-colors"
-            title="Xóa output">
+            title={ot.clearOutput}>
             <Trash2 size={12}/>
           </button>
         </div>
@@ -188,7 +191,7 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings }
         {isLoading && (
           <div className="flex items-center gap-3 p-4 text-gray-500">
             <Loader2 size={15} className="animate-spin text-indigo-400 shrink-0"/>
-            <span className="text-xs loading-pulse">Đang compile và chạy...</span>
+            <span className="text-xs loading-pulse">{ot.compiling}</span>
           </div>
         )}
 
@@ -196,7 +199,7 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings }
           <div className="flex flex-col items-center justify-center h-full text-gray-700 gap-2 p-8">
             <Terminal size={28} className="opacity-30"/>
             <p className="text-xs text-center leading-relaxed">
-              Nhấn <Kbd>Run</Kbd> hoặc <Kbd>Ctrl+Enter</Kbd> để compile
+              {ot.runHint.split('Run')[0]}<Kbd>Run</Kbd>{ot.runHint.split('Run')[1].split('Ctrl+Enter')[0]}<Kbd>Ctrl+Enter</Kbd>{ot.runHint.split('Ctrl+Enter')[1]}
             </p>
           </div>
         )}
@@ -205,7 +208,7 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings }
           <pre className="output-pre text-emerald-300">
             {result.stdout || <span className="text-gray-700 italic">(no stdout)</span>}
             {result.timedOut && (
-              <span className="block mt-2 text-yellow-400">⏱ Chương trình bị dừng do timeout.</span>
+              <span className="block mt-2 text-yellow-400">{ot.timeout}</span>
             )}
           </pre>
         )}
@@ -259,8 +262,8 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings }
               <div className="flex items-center gap-2 text-green-400 text-xs p-4">
                 <CheckCircle size={14}/>
                 {!showWarnings && warnings.length > 0
-                  ? `Không có lỗi! (${warnings.length} warning đang bị ẩn)`
-                  : 'Không có lỗi!'}
+                  ? `No errors! (${warnings.length} warning${warnings.length !== 1 ? "s" : ""} hidden)`
+                  : 'No errors!'}
               </div>
             )}
           </div>
@@ -268,32 +271,32 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings }
 
         {!isLoading && result && tab === 'info' && (
           <div className="p-4 space-y-2.5 text-xs">
-            <Row label="Compile"     v={errors.length > 0 ? '❌ Thất bại' : '✅ Thành công'} vc={errors.length > 0 ? 'text-red-400' : 'text-green-400'}/>
+            <Row label="Compile"     v={errors.length > 0 ? '❌ Failed' : '✅ Success'} vc={errors.length > 0 ? 'text-red-400' : 'text-green-400'}/>
             <Row label="Exit code"   v={String(result.exitCode)} vc={result.exitCode === 0 ? 'text-green-400' : 'text-orange-400'}/>
             <Row label="Runtime"     v={errors.length > 0 ? 'N/A' : formatDuration(result.runtime)} vc="text-blue-400"/>
-            <Row label="Timeout"     v={result.timedOut ? '⚠️ Có' : 'Không'} vc={result.timedOut ? 'text-yellow-400' : 'text-gray-500'}/>
+            <Row label="Timeout"     v={result.timedOut ? '⚠️ Yes' : 'No'} vc={result.timedOut ? 'text-yellow-400' : 'text-gray-500'}/>
             <Row label="stdout size" v={`${result.stdout.length} chars`} vc="text-gray-500"/>
             <Row label="stderr size" v={`${result.stderr.length} chars`} vc="text-gray-500"/>
-            <Row label="Warnings"    v={warnings.length > 0 ? `${warnings.length} (${showWarnings ? 'hiện' : 'ẩn'})` : 'Không có'} vc={warnings.length > 0 ? 'text-yellow-400' : 'text-gray-500'}/>
+            <Row label="Warnings"    v={warnings.length > 0 ? `${warnings.length} (${showWarnings ? 'shown' : 'hidden'})` : 'None'} vc={warnings.length > 0 ? 'text-yellow-400' : 'text-gray-500'}/>
           </div>
         )}
         {!isLoading && tab === 'history' && (
           <div className="flex flex-col h-full">
             <div className="flex items-center justify-between px-3 pt-3 pb-2 shrink-0">
               <span className="text-[11px] text-gray-500">
-                {history.length} lần chạy gần nhất (phiên này)
+                {history.length} recent runs (this session)
               </span>
               {history.length > 0 && (
                 <button onClick={handleClearHistory}
                   className="flex items-center gap-1 text-[10px] text-gray-600 hover:text-red-400 transition-colors">
-                  <RotateCcw size={10}/> Xóa
+                  <RotateCcw size={10}/> Clear
                 </button>
               )}
             </div>
             {history.length === 0 ? (
               <div className="flex flex-col items-center justify-center flex-1 text-gray-700 gap-2">
                 <History size={24} className="opacity-30"/>
-                <p className="text-xs">Chưa có lần chạy nào</p>
+                <p className="text-xs">{ot.noRuns}</p>
               </div>
             ) : (
               <div className="flex-1 overflow-auto px-3 pb-3 space-y-2">

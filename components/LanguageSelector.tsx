@@ -52,7 +52,7 @@ export default function LanguageSelector({ value, onChange }: Props) {
         onClick={() => setOpen(v => !v)}
         className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-mono font-medium rounded-md transition-all border border-gray-700/60 hover:border-gray-600"
         style={{ background: 'rgba(255,255,255,0.04)', color: '#d1d5db' }}
-        title="Chọn ngôn ngữ"
+        title="Select language"
       >
         <span
           className="w-1.5 h-1.5 rounded-full flex-shrink-0"

@@ -57,7 +57,7 @@ export default function InputEditor({ value, onChange }: InputEditorProps) {
           </button>
           <button onClick={handleClear}
             className="p-1 rounded hover:bg-gray-700 text-gray-600 hover:text-gray-300 transition-colors"
-            title="Xóa">
+            title="Clear">
             <Trash2 size={12} />
           </button>
         </div>
@@ -69,7 +69,7 @@ export default function InputEditor({ value, onChange }: InputEditorProps) {
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={"Nhập stdin ở đây...\n(nội dung sẽ truyền vào cin)"}
+        placeholder={"Enter stdin here...\n(content will be passed to cin)"}
         spellCheck={false}
         autoComplete="off"
         className="code-textarea flex-1"

@@ -1,96 +1,90 @@
+'use client';
+
 import Link from 'next/link';
 import { Keyboard, FlaskConical, Lightbulb, ArrowRight, Zap, Share2, Settings2, Code2 } from 'lucide-react';
+import { useI18n } from '@/lib/i18n-context';
 
-const CARDS = [
-  {
-    href: '/guide/shortcuts',
-    icon: Keyboard,
-    color: 'text-violet-400',
-    bg: 'bg-violet-950/30 border-violet-800/30',
-    title: 'Phím tắt',
-    desc: 'Ctrl+Enter, Ctrl+Shift+F, ? và tất cả shortcuts để code nhanh hơn.',
-  },
-  {
-    href: '/guide/testcases',
-    icon: FlaskConical,
-    color: 'text-emerald-400',
-    bg: 'bg-emerald-950/30 border-emerald-800/30',
-    title: 'Test Cases',
-    desc: 'Tạo, chạy, export/import bộ test — workflow kiểm thử như một pro.',
-  },
-  {
-    href: '/guide/tips',
-    icon: Lightbulb,
-    color: 'text-yellow-400',
-    bg: 'bg-yellow-950/30 border-yellow-800/30',
-    title: 'CP Tips & Templates',
-    desc: 'Templates DSU, Segment tree, Dijkstra — chèn 1 click vào editor.',
-  },
+const CARD_META = [
+  { href: '/guide/shortcuts', icon: Keyboard,     color: 'text-violet-400',  bg: 'bg-violet-950/30 border-violet-800/30' },
+  { href: '/guide/testcases', icon: FlaskConical,  color: 'text-emerald-400', bg: 'bg-emerald-950/30 border-emerald-800/30' },
+  { href: '/guide/tips',      icon: Lightbulb,     color: 'text-yellow-400',  bg: 'bg-yellow-950/30 border-yellow-800/30' },
 ];
 
-const FEATURES = [
-  { icon: Zap,      title: 'Compile & Run nhanh',    desc: 'WebSocket streaming — output hiện ngay từng dòng, không cần chờ.' },
-  { icon: FlaskConical, title: 'Test Case engine', desc: 'Chấm Pass/Fail tự động, so sánh expected output, chạy song song.' },
-  { icon: Share2,   title: 'Share link',              desc: 'Chia sẻ code + input qua URL ngắn — ai mở cũng thấy đúng như bạn.' },
-  { icon: Code2,    title: 'IntelliSense đầy đủ',    desc: 'Gợi ý hàm tự định nghĩa, parameter hints, STL completions.' },
-  { icon: Settings2, title: 'Tuỳ chỉnh sâu',        desc: 'Font, theme, timeout, warnings, IntelliSense — tất cả trong Settings.' },
-];
+const FEATURE_ICONS = [Zap, FlaskConical, Share2, Code2, Settings2];
+
+type StepPart = string | { tag: 'link' | 'code' | 'kbd' | 'em'; text: string };
+
+function renderStepPart(part: StepPart, idx: number) {
+  if (typeof part === 'string') return <span key={idx}>{part}</span>;
+  switch (part.tag) {
+    case 'link': return <Link key={idx} href="/" className="text-indigo-400 underline hover:text-indigo-300">{part.text}</Link>;
+    case 'code': return <span key={idx} className="text-green-400 font-mono">{part.text}</span>;
+    case 'kbd':  return <Kbd key={idx}>{part.text}</Kbd>;
+    case 'em':   return <span key={idx} className="text-indigo-400">{part.text}</span>;
+  }
+}
 
 export default function GuidePage() {
+  const { t } = useI18n();
+  const ov = t.overview;
+
   return (
     <div className="space-y-10">
       {/* Hero */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-100 mb-2">Hướng dẫn CppEditor</h1>
-        <p className="text-gray-400 text-sm leading-relaxed">
-          Online compiler hỗ trợ C++20, C++17, C11 và Python 3 — tối ưu cho Competitive Programming.
-          Chọn một chủ đề bên dưới để bắt đầu.
-        </p>
+        <h1 className="text-2xl font-bold text-gray-100 mb-2">{ov.title}</h1>
+        <p className="text-gray-400 text-sm leading-relaxed">{ov.subtitle}</p>
       </div>
 
       {/* Cards */}
       <div className="grid gap-4">
-        {CARDS.map(({ href, icon: Icon, color, bg, title, desc }) => (
-          <Link
-            key={href}
-            href={href}
-            className={`group flex items-start gap-4 p-4 rounded-xl border transition-all hover:scale-[1.01] ${bg}`}
-          >
-            <div className={`shrink-0 mt-0.5 ${color}`}><Icon size={20}/></div>
-            <div className="flex-1 min-w-0">
-              <div className="font-semibold text-gray-100 mb-1">{title}</div>
-              <div className="text-sm text-gray-400">{desc}</div>
-            </div>
-            <ArrowRight size={16} className="shrink-0 text-gray-600 mt-1 group-hover:text-gray-400 transition-colors"/>
-          </Link>
-        ))}
+        {CARD_META.map(({ href, icon: Icon, color, bg }, i) => {
+          const card = ov.cards[i];
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={`group flex items-start gap-4 p-4 rounded-xl border transition-all hover:scale-[1.01] ${bg}`}
+            >
+              <div className={`shrink-0 mt-0.5 ${color}`}><Icon size={20} /></div>
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold text-gray-100 mb-1">{card.title}</div>
+                <div className="text-sm text-gray-400">{card.desc}</div>
+              </div>
+              <ArrowRight size={16} className="shrink-0 text-gray-600 mt-1 group-hover:text-gray-400 transition-colors" />
+            </Link>
+          );
+        })}
       </div>
 
       {/* Feature highlights */}
       <div>
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-widest mb-4">Tính năng nổi bật</h2>
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-widest mb-4">
+          {ov.featuresTitle}
+        </h2>
         <div className="space-y-3">
-          {FEATURES.map(({ icon: Icon, title, desc }) => (
-            <div key={title} className="flex items-start gap-3">
-              <div className="shrink-0 mt-0.5 text-indigo-400"><Icon size={15}/></div>
-              <div>
-                <span className="text-sm font-medium text-gray-200">{title}</span>
-                <span className="text-sm text-gray-500"> — {desc}</span>
+          {ov.features.map((f, i) => {
+            const Icon = FEATURE_ICONS[i];
+            return (
+              <div key={f.title} className="flex items-start gap-3">
+                <div className="shrink-0 mt-0.5 text-indigo-400"><Icon size={15} /></div>
+                <div>
+                  <span className="text-sm font-medium text-gray-200">{f.title}</span>
+                  <span className="text-sm text-gray-500"> — {f.desc}</span>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
       {/* Quick start */}
       <div className="rounded-xl bg-indigo-950/30 border border-indigo-800/30 p-5">
-        <h2 className="text-sm font-semibold text-indigo-300 mb-3">⚡ Quick Start</h2>
+        <h2 className="text-sm font-semibold text-indigo-300 mb-3">{ov.quickStartTitle}</h2>
         <ol className="space-y-2 text-sm text-gray-300 list-decimal list-inside">
-          <li>Mở <Link href="/" className="text-indigo-400 underline hover:text-indigo-300">trang chính</Link>, chọn ngôn ngữ trên góc phải.</li>
-          <li>Gõ code vào panel <span className="text-green-400 font-mono">main.cpp</span> bên trái.</li>
-          <li>Nhấn <Kbd>Ctrl+Enter</Kbd> hoặc nút <span className="text-indigo-400">▶ Run</span> để chạy.</li>
-          <li>Xem kết quả ở panel <span className="text-red-400 font-mono">Output</span> bên phải.</li>
-          <li>Mở tab <span className="text-yellow-400">Test Cases</span> để tạo bộ test và chấm tự động.</li>
+          {ov.quickStartSteps.map((step, i) => (
+            <li key={i}>{step.map((part, j) => renderStepPart(part as StepPart, j))}</li>
+          ))}
         </ol>
       </div>
     </div>

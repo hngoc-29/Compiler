@@ -15,6 +15,7 @@ import ShareButton from './ShareButton';
 import { downloadTextFile } from '@/lib/utils';
 import { toast } from 'sonner';
 import { type TestCase } from '@/lib/testcases';
+import { useI18n } from '@/lib/i18n-context';
 
 export interface PanelVisibility {
   code:   boolean;
@@ -58,10 +59,12 @@ export default function Header({
   onOpenSettings,
   testCases,
 }: HeaderProps) {
+  const { t } = useI18n();
+  const ht = t.header;
   const [exportOpen, setExportOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
 
-  // Tên file source đúng theo ngôn ngữ
+  // Source filename based on language
   const srcFilename = langId.startsWith('python') ? 'main.py'
     : langId === 'c11' ? 'main.c'
     : 'main.cpp';
@@ -79,10 +82,10 @@ export default function Header({
   }, []);
 
   const doDownload = (defaultName: string, content: string) => {
-    const name = window.prompt(`Tên file:`, defaultName);
+    const name = window.prompt(ht.filenamePrompt, defaultName);
     if (name === null) return;
     downloadTextFile(content, name.trim() || defaultName);
-    toast.success(`Đã tải ${name.trim() || defaultName}`);
+    toast.success(ht.downloadSuccess(name.trim() || defaultName));
     setExportOpen(false);
   };
 
@@ -105,7 +108,7 @@ export default function Header({
     return (
       <div className="flex items-center gap-1.5 shrink-0">
         {onOpenInput && (
-          <button onClick={onOpenInput} className="relative flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-700/60 hover:bg-gray-600/60 text-gray-300 text-xs font-medium rounded-md transition-colors border border-gray-700/50" title="Mở input.txt">
+          <button onClick={onOpenInput} className="relative flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-700/60 hover:bg-gray-600/60 text-gray-300 text-xs font-medium rounded-md transition-colors border border-gray-700/50" title={ht.openInput}>
             <Terminal size={12}/><span>Input</span>
             {inputHasContent && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-yellow-400"/>}
           </button>
@@ -121,7 +124,7 @@ export default function Header({
           <kbd className="hidden lg:inline text-[9px] opacity-40 ml-0.5">⌘↵</kbd>
         </button>
         <div className="relative" ref={exportRef}>
-          <button onClick={() => setExportOpen(v => !v)} className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded-md transition-colors" title="Tải file">
+          <button onClick={() => setExportOpen(v => !v)} className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded-md transition-colors" title={ht.download}>
             <Download size={12}/><span className="hidden sm:inline">Export</span>
             <ChevronDown size={10} className={`transition-transform ${exportOpen ? 'rotate-180' : ''}`}/>
           </button>
@@ -176,7 +179,7 @@ export default function Header({
                 key={key}
                 onClick={() => onTogglePanel(key)}
                 className={`panel-toggle ${panels[key] ? 'active' : 'inactive'}`}
-                title={panels[key] ? `Ẩn ${label}` : `Hiện ${label}`}
+                title={panels[key] ? `Hide ${label}` : `Show ${label}`}
               >
                 {icon}
                 <span className="hidden md:inline">{label}</span>
@@ -194,7 +197,7 @@ export default function Header({
           <button
             onClick={onOpenInput}
             className="relative flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-700/60 hover:bg-gray-600/60 text-gray-300 text-xs font-medium rounded-md transition-colors border border-gray-700/50"
-            title="Mở input.txt"
+            title={ht.openInput}
           >
             <Terminal size={12}/>
             <span>Input</span>
@@ -208,8 +211,8 @@ export default function Header({
         <button
           onClick={onToggleOptimize}
           title={optimize
-            ? 'Chế độ Optimize (-O2). Nhấn để đổi sang Fast (-O0).'
-            : 'Chế độ Fast (-O0). Nhấn để đổi sang Optimize (-O2).'}
+            ? 'Optimize mode (-O2). Click to switch to Fast (-O0).'
+            : 'Fast mode (-O0). Click to switch to Optimize (-O2).'}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all border ${
             optimize
               ? 'bg-amber-900/40 border-amber-700/50 text-amber-300 hover:bg-amber-800/40'
@@ -240,7 +243,7 @@ export default function Header({
           <button
             onClick={() => setExportOpen(v => !v)}
             className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded-md transition-colors"
-            title="Tải file"
+            title={ht.download}
           >
             <Download size={12}/>
             <span className="hidden sm:inline">Export</span>
