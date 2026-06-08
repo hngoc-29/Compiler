@@ -102,6 +102,32 @@ export interface Translations {
     showWarningsDesc: string;
     runTimeoutDesc:   string;
     themes:           ThemeOpt[];
+    title:              string;
+    savedAutomatically: string;
+    sections: {
+      intellisense: string;
+      display:      string;
+      typography:   string;
+      theme:        string;
+      execution:    string;
+    };
+    toggles: {
+      suggestions:             { label: string; desc: string };
+      quickSuggestions:        { label: string; desc: string };
+      parameterHints:          { label: string; desc: string };
+      snippets:                { label: string; desc: string };
+      minimap:                 { label: string; desc: string };
+      wordWrap:                { label: string; desc: string };
+      lineNumbers:             { label: string; desc: string };
+      bracketPairColorization: { label: string; desc: string };
+      renderWhitespace:        { label: string; desc: string };
+      showWarnings:            { label: string; desc: string };
+      fontLigatures:           { label: string; desc: string };
+      smoothCaret:             { label: string; desc: string };
+    };
+    fontSize:   string;
+    tabSize:    string;
+    runTimeout: string;
   };
 
   /* Output panel */
@@ -111,6 +137,10 @@ export interface Translations {
     runHint:     string;
     timeout:     string;
     noRuns:      string;
+    copy:        string;
+    infoLabels: { compile: string; exitCode: string; runtime: string; timeout: string; warnings: string };
+    infoValues: { failed: string; success: string; na: string; yes: string; no: string; shown: string; hidden: string; none: string };
+    historyStatus: { timeout: string; error: string; ok: string };
   };
 
   /* Test case panel */
@@ -164,6 +194,47 @@ export interface Translations {
     decoding:    string;
     decodeError: string;
     goHome:      string;
+  };
+
+  /* Generic UI labels — buttons, tabs, badges used across multiple components */
+  ui: {
+    run:        string;   // "Run" / "Chạy"
+    runAll:     string;   // "Run All"
+    singleRun:  string;   // "Single Run"
+    format:     string;   // "Format"
+    copy:       string;   // "Copy"
+    clear:      string;   // "Clear"
+    input:      string;   // "Input" (panel label)
+    optimize:   string;   // "Optimize"
+    tabs: {
+      output:   string;   // OutputPanel tab
+      errors:   string;
+      info:     string;
+      history:  string;
+      code:     string;   // Mobile nav
+      input:    string;   // Mobile nav
+      tests:    string;
+    };
+    badges: {
+      compileError:   string;
+      warning:        string;
+      timeout:        string;
+      runtimeStderr:  string;
+    };
+    nRecentRuns: (n: number) => string;
+    close:             string;
+    undo:              string;
+    redo:              string;
+    shareLink:         string;
+    exportTestCases:   string;
+    importTestCases:   string;
+    duplicateTestCase: string;
+    templatesTitle:    string;
+    shortcutsTitle:    string;
+    optimizeOn:        string;
+    optimizeOff:       string;
+    srcHints: { cpp: string; c: string; python: string };
+    fileHints: { stdin: string; stdout: string };
   };
 
 }  // Translations

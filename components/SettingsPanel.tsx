@@ -2,8 +2,7 @@
 
 /**
  * components/SettingsPanel.tsx
- * A slide-in settings panel for editor preferences.
- * Includes toggles for suggestions, display options, font size, tab size.
+ * Slide-in settings panel — fully i18n via useI18n().
  */
 
 import { useEffect, useRef } from 'react';
@@ -108,13 +107,14 @@ function SelectRow({ label, value, options, onChange }: {
 export default function SettingsPanel({ open, onClose, settings, onChange }: SettingsPanelProps) {
   const { t } = useI18n();
   const st = t.settings;
+  const tog = st.toggles;
+  const sec = st.sections;
   const panelRef = useRef<HTMLDivElement>(null);
 
   const set = <K extends keyof EditorSettings>(key: K, val: EditorSettings[K]) => {
     onChange({ ...settings, [key]: val });
   };
 
-  // Close on Escape
   useEffect(() => {
     if (!open) return;
     const fn = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -122,7 +122,6 @@ export default function SettingsPanel({ open, onClose, settings, onChange }: Set
     return () => document.removeEventListener('keydown', fn);
   }, [open, onClose]);
 
-  // Close on outside click
   useEffect(() => {
     if (!open) return;
     const fn = (e: MouseEvent) => {
@@ -134,14 +133,10 @@ export default function SettingsPanel({ open, onClose, settings, onChange }: Set
 
   return (
     <>
-      {/* Backdrop */}
-      <div
-        className={`fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity duration-200 ${
-          open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-        }`}
-      />
+      <div className={`fixed inset-0 z-40 bg-black/40 backdrop-blur-sm transition-opacity duration-200 ${
+        open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+      }`} />
 
-      {/* Panel */}
       <div
         ref={panelRef}
         className={`fixed right-0 top-0 h-full z-50 w-80 bg-[#0d1117] border-l border-gray-800 shadow-2xl flex flex-col transition-transform duration-300 ${
@@ -154,7 +149,7 @@ export default function SettingsPanel({ open, onClose, settings, onChange }: Set
             <div className="p-1 rounded bg-indigo-600/20">
               <Code2 size={14} className="text-indigo-400" />
             </div>
-            <span className="text-sm font-semibold text-gray-100">Editor Settings</span>
+            <span className="text-sm font-semibold text-gray-100">{st.title}</span>
           </div>
           <button
             onClick={onClose}
@@ -164,118 +159,40 @@ export default function SettingsPanel({ open, onClose, settings, onChange }: Set
           </button>
         </div>
 
-        {/* Scrollable body */}
+        {/* Body */}
         <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1">
 
-          {/* ── Suggestions ── */}
-          <SectionHeader icon={<Sparkles size={12}/>} label="IntelliSense" />
-
-          <ToggleRow
-            label="Enable Suggestions"
-            description="Master toggle — turns autocomplete on or off"
-            checked={settings.suggestions}
-            onChange={v => set('suggestions', v)}
-          />
-          <ToggleRow
-            label="Inline Quick Suggestions"
-            description="Show suggestions while typing (not just on trigger)"
-            checked={settings.quickSuggestions}
-            onChange={v => set('quickSuggestions', v)}
-            disabled={!settings.suggestions}
-          />
-          <ToggleRow
-            label="Parameter Hints"
-            description="Show function signatures with parameter info when typing '('"
-            checked={settings.parameterHints}
-            onChange={v => set('parameterHints', v)}
-            disabled={!settings.suggestions}
-          />
-          <ToggleRow
-            label="Code Snippets"
-            description="Enable snippet templates (fori, bfs, dfs, dp...)"
-            checked={settings.snippets}
-            onChange={v => set('snippets', v)}
-            disabled={!settings.suggestions}
-          />
+          {/* IntelliSense */}
+          <SectionHeader icon={<Sparkles size={12}/>} label={sec.intellisense} />
+          <ToggleRow label={tog.suggestions.label}             description={tog.suggestions.desc}             checked={settings.suggestions}             onChange={v => set('suggestions', v)} />
+          <ToggleRow label={tog.quickSuggestions.label}        description={tog.quickSuggestions.desc}        checked={settings.quickSuggestions}        onChange={v => set('quickSuggestions', v)}        disabled={!settings.suggestions} />
+          <ToggleRow label={tog.parameterHints.label}          description={tog.parameterHints.desc}          checked={settings.parameterHints}          onChange={v => set('parameterHints', v)}          disabled={!settings.suggestions} />
+          <ToggleRow label={tog.snippets.label}                description={tog.snippets.desc}                checked={settings.snippets}                onChange={v => set('snippets', v)}                disabled={!settings.suggestions} />
 
           <Divider />
 
-          {/* ── Display ── */}
-          <SectionHeader icon={<Eye size={12}/>} label="Display" />
-
-          <ToggleRow
-            label="Minimap"
-            description="Show code overview in the right margin"
-            checked={settings.minimap}
-            onChange={v => set('minimap', v)}
-          />
-          <ToggleRow
-            label="Word Wrap"
-            description="Wrap long lines instead of horizontal scroll"
-            checked={settings.wordWrap}
-            onChange={v => set('wordWrap', v)}
-          />
-          <ToggleRow
-            label="Line Numbers"
-            description="Show line numbers in the gutter"
-            checked={settings.lineNumbers}
-            onChange={v => set('lineNumbers', v)}
-          />
-          <ToggleRow
-            label="Bracket Pair Colorization"
-            description="Color matching brackets/parentheses"
-            checked={settings.bracketPairColorization}
-            onChange={v => set('bracketPairColorization', v)}
-          />
-          <ToggleRow
-            label="Render Whitespace"
-            description="Show dots for spaces in selected text"
-            checked={settings.renderWhitespace}
-            onChange={v => set('renderWhitespace', v)}
-          />
-          <ToggleRow
-            label="Show Warnings"
-            description={st.showWarningsDesc}
-            checked={settings.showWarnings}
-            onChange={v => set('showWarnings', v)}
-          />
+          {/* Display */}
+          <SectionHeader icon={<Eye size={12}/>} label={sec.display} />
+          <ToggleRow label={tog.minimap.label}                 description={tog.minimap.desc}                 checked={settings.minimap}                 onChange={v => set('minimap', v)} />
+          <ToggleRow label={tog.wordWrap.label}                description={tog.wordWrap.desc}                checked={settings.wordWrap}                onChange={v => set('wordWrap', v)} />
+          <ToggleRow label={tog.lineNumbers.label}             description={tog.lineNumbers.desc}             checked={settings.lineNumbers}             onChange={v => set('lineNumbers', v)} />
+          <ToggleRow label={tog.bracketPairColorization.label} description={tog.bracketPairColorization.desc} checked={settings.bracketPairColorization} onChange={v => set('bracketPairColorization', v)} />
+          <ToggleRow label={tog.renderWhitespace.label}        description={tog.renderWhitespace.desc}        checked={settings.renderWhitespace}        onChange={v => set('renderWhitespace', v)} />
+          <ToggleRow label={tog.showWarnings.label}            description={st.showWarningsDesc}              checked={settings.showWarnings}            onChange={v => set('showWarnings', v)} />
 
           <Divider />
 
-          {/* ── Typography ── */}
-          <SectionHeader icon={<Type size={12}/>} label="Typography" />
-
-          <ToggleRow
-            label="Font Ligatures"
-            description="Enable ligatures (→, ≥, !=, etc. with JetBrains Mono)"
-            checked={settings.fontLigatures}
-            onChange={v => set('fontLigatures', v)}
-          />
-          <ToggleRow
-            label="Smooth Caret Animation"
-            description="Animate cursor movement"
-            checked={settings.smoothCaret}
-            onChange={v => set('smoothCaret', v)}
-          />
-
-          <SliderRow
-            label="Font Size"
-            value={settings.fontSize}
-            min={10} max={20} step={1} unit="px"
-            onChange={v => set('fontSize', v)}
-          />
-
-          <SelectRow
-            label="Tab Size"
-            value={settings.tabSize}
-            options={[2, 4, 8]}
-            onChange={v => set('tabSize', v)}
-          />
+          {/* Typography */}
+          <SectionHeader icon={<Type size={12}/>} label={sec.typography} />
+          <ToggleRow label={tog.fontLigatures.label}  description={tog.fontLigatures.desc}  checked={settings.fontLigatures}  onChange={v => set('fontLigatures', v)} />
+          <ToggleRow label={tog.smoothCaret.label}    description={tog.smoothCaret.desc}    checked={settings.smoothCaret}    onChange={v => set('smoothCaret', v)} />
+          <SliderRow label={st.fontSize} value={settings.fontSize}  min={10} max={20} step={1} unit="px" onChange={v => set('fontSize', v)} />
+          <SelectRow label={st.tabSize}  value={settings.tabSize}   options={[2, 4, 8]}               onChange={v => set('tabSize', v)} />
 
           <Divider />
 
-          {/* ── Theme ── */}
-          <SectionHeader icon={<Monitor size={12}/>} label="Theme" />
+          {/* Theme */}
+          <SectionHeader icon={<Monitor size={12}/>} label={sec.theme} />
           <div className="space-y-1">
             {st.themes.map(opt => (
               <button
@@ -300,12 +217,12 @@ export default function SettingsPanel({ open, onClose, settings, onChange }: Set
 
           <Divider />
 
-          {/* ── Execution ── */}
-          <SectionHeader icon={<Timer size={12}/>} label="Execution" />
+          {/* Execution */}
+          <SectionHeader icon={<Timer size={12}/>} label={sec.execution} />
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <div>
-                <span className="text-xs text-gray-300">Run Timeout</span>
+                <span className="text-xs text-gray-300">{st.runTimeout}</span>
                 <p className="text-[10px] text-gray-600">{st.runTimeoutDesc}</p>
               </div>
               <span className="text-xs font-mono text-indigo-400 font-semibold">
@@ -334,7 +251,7 @@ export default function SettingsPanel({ open, onClose, settings, onChange }: Set
 
         {/* Footer */}
         <div className="px-4 py-3 border-t border-gray-800 shrink-0">
-          <p className="text-[10px] text-gray-600 text-center">Settings saved automatically</p>
+          <p className="text-[10px] text-gray-600 text-center">{st.savedAutomatically}</p>
         </div>
       </div>
     </>

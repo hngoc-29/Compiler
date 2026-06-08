@@ -181,7 +181,7 @@ export default function TestCasePanel({
           <button
             onClick={handleExport}
             className="p-1.5 text-gray-600 hover:text-gray-300 hover:bg-gray-700/50 rounded transition-colors"
-            title="Export test cases (.json)"
+            title={t.ui.exportTestCases}
           >
             <Download size={11} />
           </button>
@@ -189,7 +189,7 @@ export default function TestCasePanel({
           <button
             onClick={() => importInputRef.current?.click()}
             className="p-1.5 text-gray-600 hover:text-gray-300 hover:bg-gray-700/50 rounded transition-colors"
-            title="Import test cases (.json)"
+            title={t.ui.importTestCases}
           >
             <Upload size={11} />
           </button>
@@ -260,7 +260,7 @@ export default function TestCasePanel({
                   <button
                     onClick={() => handleDuplicate(tc)}
                     className="p-1 rounded hover:bg-gray-700 text-gray-600 hover:text-gray-300 transition-colors"
-                    title="Duplicate test case"
+                    title={t.ui.duplicateTestCase}
                   >
                     <Copy size={10} />
                   </button>

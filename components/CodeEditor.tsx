@@ -399,10 +399,10 @@ export default function CodeEditor({
     <div ref={containerRef} style={{ height: '100%', overflow: 'hidden', position: 'relative' }}>
       {!readOnly && (
         <div style={{ position: 'absolute', top: 6, right: 10, zIndex: 10, display: 'flex', gap: 4 }}>
-          <button onClick={handleUndo} title="Undo (Ctrl+Z)" disabled={!canUndo} style={btnStyle(canUndo)}>
+          <button onClick={handleUndo} title={t.ui.undo} disabled={!canUndo} style={btnStyle(canUndo)}>
             <Undo2 size={14} />
           </button>
-          <button onClick={handleRedo} title="Redo (Ctrl+Y)" disabled={!canRedo} style={btnStyle(canRedo)}>
+          <button onClick={handleRedo} title={t.ui.redo} disabled={!canRedo} style={btnStyle(canRedo)}>
             <Redo2 size={14} />
           </button>
 

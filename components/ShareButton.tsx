@@ -8,6 +8,7 @@
 import { useState } from 'react';
 import { Share2, Copy, Check, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useI18n } from '@/lib/i18n-context';
 import { SHARE_WARN_BYTES, formatBytes } from '@/lib/utils';
 import { type TestCase, serializeTestCases } from '@/lib/testcases';
 
@@ -18,6 +19,8 @@ interface ShareButtonProps {
 }
 
 export default function ShareButton({ code, input, testCases }: ShareButtonProps) {
+  const { t } = useI18n();
+  const ui = t.ui;
   const [isGenerating, setIsGenerating] = useState(false);
   const [shareUrl,     setShareUrl]     = useState<string | null>(null);
   const [copied,       setCopied]       = useState(false);
@@ -78,7 +81,7 @@ export default function ShareButton({ code, input, testCases }: ShareButtonProps
       <button
         onClick={handleShare}
         disabled={isGenerating}
-        title="Create share link (fflate compressed)"
+        title={ui.shareLink}
         className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-700 hover:bg-violet-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium rounded-md transition-colors">
         {isGenerating
           ? <Loader2 size={12} className="animate-spin"/>

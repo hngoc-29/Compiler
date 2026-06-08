@@ -23,13 +23,11 @@ import { ja } from './ja';
 export type { Translations } from './types';
 
 // ── ① Supported language codes ────────────────────────────────────────────
-//    Lang type is DERIVED — never maintain it by hand.
 export const SUPPORTED_LANGS = ['en', 'vi', 'ja'] as const;
 export type  Lang             = typeof SUPPORTED_LANGS[number];
 export const DEFAULT_LANG: Lang = 'en';
 
 // ── ② Display names for the language selector UI ──────────────────────────
-//    One entry per language, in the language itself.
 export const LANG_NAMES: Record<Lang, string> = {
   en: 'English',
   vi: 'Tiếng Việt',
@@ -37,7 +35,6 @@ export const LANG_NAMES: Record<Lang, string> = {
 };
 
 // ── ③ Translation registry ────────────────────────────────────────────────
-//    Record<Lang, Translations> means TS errors if any language is missing.
 export const translations: Record<Lang, import('./types').Translations> = {
   en,
   vi,

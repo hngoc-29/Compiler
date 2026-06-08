@@ -83,6 +83,7 @@ function parseCompilerOutput(raw: string): ParsedDiagnostics {
 export default function OutputPanel({ result, isLoading, onClear, showWarnings }: OutputPanelProps) {
   const { t } = useI18n();
   const ot = t.output;
+  const ui = t.ui;
   const [tab, setTab] = useState<TabId>('output');
   const [history, setHistory] = useState<RunRecord[]>(() => getHistory());
 
@@ -95,7 +96,7 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings }
   const handleClearHistory = () => {
     clearHistory();
     setHistory([]);
-    toast.success('History cleared');
+    toast.success(ui.clear);
   };
 
   const { warnings, errors } = result?.compileError
@@ -121,27 +122,27 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings }
       text = `Exit: ${result.exitCode}\nRuntime: ${formatDuration(result.runtime)}\nTimeout: ${result.timedOut}`;
     }
     try { await navigator.clipboard.writeText(text); toast.success('Copied!'); }
-    catch { toast.error('Cannot copy'); }
+    catch { toast.error(ui.copy); }
   };
 
   const statusBadge = () => {
     if (!result) return null;
     if (errors.length > 0)
-      return <Badge color="red"><XCircle size={10}/> Compile Error</Badge>;
+      return <Badge color="red"><XCircle size={10}/> {ui.badges.compileError}</Badge>;
     if (showWarnings && warnings.length > 0)
-      return <Badge color="yellow"><AlertTriangle size={10}/> Warning</Badge>;
+      return <Badge color="yellow"><AlertTriangle size={10}/> {ui.badges.warning}</Badge>;
     if (result.timedOut)
-      return <Badge color="yellow"><Clock size={10}/> Timeout</Badge>;
+      return <Badge color="yellow"><Clock size={10}/> {ui.badges.timeout}</Badge>;
     if (result.exitCode !== 0)
       return <Badge color="orange"><XCircle size={10}/> Exit {result.exitCode}</Badge>;
     return <Badge color="green"><CheckCircle size={10}/> OK · {formatDuration(result.runtime)}</Badge>;
   };
 
   const tabs = [
-    { id: 'output'  as TabId, label: 'Output',  icon: <Terminal    size={11}/> },
-    { id: 'errors'  as TabId, label: 'Errors',  icon: <AlertCircle size={11}/>, badge: visibleIssueCount || undefined },
-    { id: 'info'    as TabId, label: 'Info',    icon: <Info        size={11}/> },
-    { id: 'history' as TabId, label: 'History', icon: <History     size={11}/>, badge: history.length || undefined, badgeColor: 'bg-gray-600' },
+    { id: 'output'  as TabId, label: ui.tabs.output,  icon: <Terminal    size={11}/> },
+    { id: 'errors'  as TabId, label: ui.tabs.errors,  icon: <AlertCircle size={11}/>, badge: visibleIssueCount || undefined },
+    { id: 'info'    as TabId, label: ui.tabs.info,    icon: <Info        size={11}/> },
+    { id: 'history' as TabId, label: ui.tabs.history, icon: <History     size={11}/>, badge: history.length || undefined, badgeColor: 'bg-gray-600' },
   ];
 
   return (
@@ -174,7 +175,7 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings }
           {result && (
             <button onClick={handleCopy}
               className="p-1 rounded hover:bg-gray-700 text-gray-600 hover:text-gray-300 transition-colors"
-              title="Copy">
+              title={ot.copy}>
               <Copy size={12}/>
             </button>
           )}
@@ -250,7 +251,7 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings }
             {result.stderr && (
               <div>
                 <p className="text-[11px] font-semibold text-orange-400 mb-1.5 flex items-center gap-1">
-                  <AlertCircle size={11}/> Runtime Stderr
+                  <AlertCircle size={11}/> {ui.badges.runtimeStderr}
                 </p>
                 <pre className="output-pre text-orange-300 bg-orange-950/20 rounded p-3 text-xs">{result.stderr}</pre>
               </div>
@@ -271,25 +272,25 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings }
 
         {!isLoading && result && tab === 'info' && (
           <div className="p-4 space-y-2.5 text-xs">
-            <Row label="Compile"     v={errors.length > 0 ? '❌ Failed' : '✅ Success'} vc={errors.length > 0 ? 'text-red-400' : 'text-green-400'}/>
-            <Row label="Exit code"   v={String(result.exitCode)} vc={result.exitCode === 0 ? 'text-green-400' : 'text-orange-400'}/>
-            <Row label="Runtime"     v={errors.length > 0 ? 'N/A' : formatDuration(result.runtime)} vc="text-blue-400"/>
-            <Row label="Timeout"     v={result.timedOut ? '⚠️ Yes' : 'No'} vc={result.timedOut ? 'text-yellow-400' : 'text-gray-500'}/>
+            <Row label={ot.infoLabels.compile}     v={errors.length > 0 ? ot.infoValues.failed : ot.infoValues.success} vc={errors.length > 0 ? 'text-red-400' : 'text-green-400'}/>
+            <Row label={ot.infoLabels.exitCode}   v={String(result.exitCode)} vc={result.exitCode === 0 ? 'text-green-400' : 'text-orange-400'}/>
+            <Row label={ot.infoLabels.runtime}     v={errors.length > 0 ? ot.infoValues.na : formatDuration(result.runtime)} vc="text-blue-400"/>
+            <Row label={ot.infoLabels.timeout}     v={result.timedOut ? ot.infoValues.yes : ot.infoValues.no} vc={result.timedOut ? 'text-yellow-400' : 'text-gray-500'}/>
             <Row label="stdout size" v={`${result.stdout.length} chars`} vc="text-gray-500"/>
             <Row label="stderr size" v={`${result.stderr.length} chars`} vc="text-gray-500"/>
-            <Row label="Warnings"    v={warnings.length > 0 ? `${warnings.length} (${showWarnings ? 'shown' : 'hidden'})` : 'None'} vc={warnings.length > 0 ? 'text-yellow-400' : 'text-gray-500'}/>
+            <Row label={ot.infoLabels.warnings}    v={warnings.length > 0 ? `${warnings.length} (${showWarnings ? ot.infoValues.shown : ot.infoValues.hidden})` : ot.infoValues.none} vc={warnings.length > 0 ? 'text-yellow-400' : 'text-gray-500'}/>
           </div>
         )}
         {!isLoading && tab === 'history' && (
           <div className="flex flex-col h-full">
             <div className="flex items-center justify-between px-3 pt-3 pb-2 shrink-0">
               <span className="text-[11px] text-gray-500">
-                {history.length} recent runs (this session)
+                {ui.nRecentRuns(history.length)}
               </span>
               {history.length > 0 && (
                 <button onClick={handleClearHistory}
                   className="flex items-center gap-1 text-[10px] text-gray-600 hover:text-red-400 transition-colors">
-                  <RotateCcw size={10}/> Clear
+                  <RotateCcw size={10}/> {ui.clear}
                 </button>
               )}
             </div>
@@ -311,7 +312,7 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings }
                       <div className="flex items-center justify-between">
                         <div className={`flex items-center gap-1 font-medium ${statusColor}`}>
                           {statusIcon}
-                          {rec.timedOut ? 'Timeout' : hasError ? 'Error' : 'OK'}
+                          {rec.timedOut ? ot.historyStatus.timeout : hasError ? ot.historyStatus.error : ot.historyStatus.ok}
                         </div>
                         <div className="flex items-center gap-2 text-gray-600">
                           <span className="font-mono">{rec.langId}</span>

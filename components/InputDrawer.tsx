@@ -10,6 +10,7 @@
 import { useRef, useEffect, useCallback } from 'react';
 import { X, Copy, Trash2, GripHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
+import { useI18n } from '@/lib/i18n-context';
 
 interface InputDrawerProps {
   open:     boolean;
@@ -19,6 +20,8 @@ interface InputDrawerProps {
 }
 
 export default function InputDrawer({ open, value, onChange, onClose }: InputDrawerProps) {
+  const { t } = useI18n();
+  const ui = t.ui;
   const taRef        = useRef<HTMLTextAreaElement>(null);
   const backdropRef  = useRef<HTMLDivElement>(null);
   const sheetRef     = useRef<HTMLDivElement>(null);
@@ -39,8 +42,8 @@ export default function InputDrawer({ open, value, onChange, onClose }: InputDra
   }, [open]);
 
   const handleCopy = async () => {
-    try { await navigator.clipboard.writeText(value); toast.success('Input copied!'); }
-    catch { toast.error('Cannot copy'); }
+    try { await navigator.clipboard.writeText(value); toast.success(ui.copy); }
+    catch { toast.error(ui.copy); }
   };
 
   const handleClear = () => { onChange(''); taRef.current?.focus(); };
@@ -129,17 +132,17 @@ export default function InputDrawer({ open, value, onChange, onClose }: InputDra
           <div className="flex items-center gap-1">
             <button onClick={handleCopy}
               className="p-1 rounded hover:bg-gray-700 text-gray-600 hover:text-gray-300 transition-colors"
-              title="Copy">
+              title={ui.copy}>
               <Copy size={13} />
             </button>
             <button onClick={handleClear}
               className="p-1 rounded hover:bg-gray-700 text-gray-600 hover:text-gray-300 transition-colors"
-              title="Clear">
+              title={ui.clear}>
               <Trash2 size={13} />
             </button>
             <button onClick={onClose}
               className="p-1 rounded hover:bg-gray-700 text-gray-500 hover:text-gray-200 transition-colors ml-1"
-              title="Close">
+              title={ui.close}>
               <X size={15} />
             </button>
           </div>

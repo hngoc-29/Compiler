@@ -2,22 +2,20 @@
 
 /**
  * app/guide/GuideShell.tsx
- * Client shell for the guide section: sidebar navigation + language selector.
- * Reads SUPPORTED_LANGS and LANG_NAMES dynamically — adding a new language
- * to lib/i18n.ts automatically shows it here with zero changes needed.
+ * Client shell for the guide section — sidebar + language selector.
  */
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Code2, Keyboard, FlaskConical, Lightbulb, ArrowLeft, Globe } from 'lucide-react';
+import { Code2, Keyboard, FlaskConical, Lightbulb, ArrowLeft } from 'lucide-react';
 import { I18nProvider, useI18n } from '@/lib/i18n-context';
-import { SUPPORTED_LANGS, LANG_NAMES } from '@/lib/i18n';
+import LangSelect from '@/components/LangSelect';
 
 const NAV_ICONS = [Code2, Keyboard, FlaskConical, Lightbulb];
 const NAV_HREFS = ['/guide', '/guide/shortcuts', '/guide/testcases', '/guide/tips'];
 
 function GuideSidebar() {
-  const { t, lang, setLang } = useI18n();
+  const { t } = useI18n();
   const pathname = usePathname();
 
   const navItems = [
@@ -29,7 +27,7 @@ function GuideSidebar() {
 
   return (
     <aside className="w-56 shrink-0 border-r border-[#1f1f32] bg-[#0e0e1a] h-full flex flex-col overflow-y-auto">
-      {/* Back link */}
+      {/* Back */}
       <div className="p-4 border-b border-[#1f1f32] shrink-0">
         <Link
           href="/"
@@ -65,27 +63,9 @@ function GuideSidebar() {
         })}
       </nav>
 
-      {/* Language selector — renders dynamically from SUPPORTED_LANGS + LANG_NAMES */}
+      {/* Language selector — auto-shows all languages from SUPPORTED_LANGS */}
       <div className="p-3 border-t border-[#1f1f32] shrink-0">
-        <div className="flex items-center gap-1.5 mb-2 px-1">
-          <Globe size={11} className="text-gray-600" />
-          <span className="text-[10px] text-gray-600 uppercase tracking-widest">Language</span>
-        </div>
-        <div className="flex gap-1 flex-wrap">
-          {SUPPORTED_LANGS.map(l => (
-            <button
-              key={l}
-              onClick={() => setLang(l)}
-              className={`flex-1 py-1 text-[11px] rounded font-mono transition-colors ${
-                lang === l
-                  ? 'bg-indigo-600/70 text-indigo-200 font-semibold'
-                  : 'bg-gray-800/60 text-gray-500 hover:text-gray-300'
-              }`}
-            >
-              {LANG_NAMES[l]}
-            </button>
-          ))}
-        </div>
+        <LangSelect variant="sidebar" />
       </div>
     </aside>
   );
@@ -99,9 +79,7 @@ function GuideLayout({ children }: { children: React.ReactNode }) {
     >
       <GuideSidebar />
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl px-10 py-10">
-          {children}
-        </div>
+        <div className="max-w-3xl px-10 py-10">{children}</div>
       </main>
     </div>
   );

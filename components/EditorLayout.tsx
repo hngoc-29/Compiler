@@ -38,7 +38,7 @@ import { loadSettings, saveSettings, type EditorSettings } from '@/lib/editor-se
 import { loadPrefs,   savePrefs                            } from '@/lib/user-prefs';
 import { Copy, Check, Loader2, Code2, AlignLeft, ClipboardList, MonitorDot, Play, Zap, Gauge, Settings2, Eye, LibrarySquare, Keyboard } from 'lucide-react';
 import { useI18n } from '@/lib/i18n-context';
-import { SUPPORTED_LANGS, LANG_NAMES } from '@/lib/i18n';
+import LangSelect from '@/components/LangSelect';
 
 const MIN_PX = 120;
 
@@ -397,13 +397,13 @@ export default function EditorLayout({
         runtime: result.runtime,
       } : t));
 
-      if (status === 'error')        toast.error(`❌ ${tc.label}: ${result.compileError ? 'Compile error' : `Exit ${result.exitCode}`}`);
+      if (status === 'error')        toast.error(`❌ ${tc.label}: ${result.compileError ? t.ui.badges.compileError : `Exit ${result.exitCode}`}`);
       else if (status === 'timeout') toast.warning(`⏱ ${tc.label}: Timeout`);
       else if (status === 'wrong')   toast.error(`❌ ${tc.label}: Wrong Answer`);
       else toast.success(`✅ ${tc.label}: ${hasExpected ? 'PASS' : `OK · ${result.runtime}ms`}`);
     } catch (err) {
       setTestCases(prev => prev.map(t => t.id === tc.id
-        ? { ...t, status: 'error', error: err instanceof Error ? err.message : 'Network error' }
+        ? { ...t, status: 'error', error: err instanceof Error ? err.message : el.cannotConnect }
         : t));
     } finally {
       setRunningTcId(null);
@@ -702,7 +702,7 @@ export default function EditorLayout({
                 className={`px-3 py-1 text-[11px] rounded-md transition-colors font-medium ${
                   activeTab === 'single' ? 'bg-gray-700 text-gray-100' : 'text-gray-500 hover:text-gray-300'
                 }`}
-              >Single Run</button>
+              >{t.ui.singleRun}</button>
               <button
                 onClick={() => { setActiveTab('testcases'); savePrefs({ ...loadPrefs(), activeTab: 'testcases' }); }}
                 className={`px-3 py-1 text-[11px] rounded-md transition-colors font-medium flex items-center gap-1 ${
@@ -727,7 +727,7 @@ export default function EditorLayout({
             onOpenSettings={() => setSettingsOpen(true)}
             testCases={testCases}
           />
-          <LangToggle />
+          <LangSelect variant="compact" className="ml-1" />
         </header>
       )}
 
@@ -805,10 +805,10 @@ export default function EditorLayout({
               : { text: String(testCases.length), color: '#6b7280' };
 
             const TABS = [
-              { id: 'code',   Icon: Code2,          label: 'Code',   badge: null,       accentColor: '#4ade80' },
-              { id: 'input',  Icon: AlignLeft,       label: 'Input',  badge: singleInput.trim() ? { text: '·', color: '#facc15' } : null, accentColor: '#facc15' },
-              { id: 'tests',  Icon: ClipboardList,   label: 'Tests',  badge: testBadge,  accentColor: '#818cf8' },
-              { id: 'output', Icon: MonitorDot,      label: 'Output', badge: outBadge,   accentColor: '#f87171' },
+              { id: 'code',   Icon: Code2,          label: t.ui.tabs.code,   badge: null,       accentColor: '#4ade80' },
+              { id: 'input',  Icon: AlignLeft,       label: t.ui.tabs.input,  badge: singleInput.trim() ? { text: '·', color: '#facc15' } : null, accentColor: '#facc15' },
+              { id: 'tests',  Icon: ClipboardList,   label: t.ui.tabs.tests,  badge: testBadge,  accentColor: '#818cf8' },
+              { id: 'output', Icon: MonitorDot,      label: t.ui.tabs.output, badge: outBadge,   accentColor: '#f87171' },
             ] as const;
 
             return (
@@ -870,7 +870,7 @@ export default function EditorLayout({
                     : <Play size={20} fill="currentColor" strokeWidth={0}/>
                   }
                   <span className="text-[10px] font-semibold leading-none">
-                    {mobileTab === 'tests' ? 'All' : 'Run'}
+                    {mobileTab === 'tests' ? t.ui.runAll : t.ui.run}
                   </span>
                 </button>
               </nav>
@@ -891,14 +891,14 @@ export default function EditorLayout({
                 <button
                   onClick={() => setTemplatesOpen(true)}
                   className="p-1 rounded hover:bg-gray-700 text-gray-600 hover:text-indigo-400 transition-colors mr-0.5"
-                  title="Templates CP (Ctrl+T)"
+                  title={t.ui.templatesTitle}
                 >
                   <LibrarySquare size={12}/>
                 </button>
                 <button
                   onClick={() => setShortcutsOpen(true)}
                   className="p-1 rounded hover:bg-gray-700 text-gray-600 hover:text-gray-300 transition-colors mr-0.5"
-                  title="Keyboard shortcuts (?)"
+                  title={t.ui.shortcutsTitle}
                 >
                   <Keyboard size={12}/>
                 </button>
@@ -1022,6 +1022,7 @@ function PaneBar({ dotColor, title, subtitle, children }: {
 
 // ── CopyButton ────────────────────────────────────────────────────────────
 function CopyButton({ text, label }: { text: string; label: string }) {
+  const { t } = useI18n();
   const [done, setDone] = useState(false);
   const handle = async () => {
     try {
@@ -1029,7 +1030,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
       setDone(true);
       toast.success(`Copied ${label}!`);
       setTimeout(() => setDone(false), 2000);
-    } catch { toast.error('Cannot copy'); }
+    } catch { toast.error(t.ui.copy); }
   };
   return (
     <button onClick={handle}
@@ -1040,26 +1041,3 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   );
 }
 
-// ── LangToggle ────────────────────────────────────────────────────────────
-// Reads SUPPORTED_LANGS dynamically — new languages appear automatically.
-function LangToggle() {
-  const { lang, setLang } = useI18n();
-  return (
-    <div className="flex items-center gap-0.5 ml-1">
-      {SUPPORTED_LANGS.map(l => (
-        <button
-          key={l}
-          onClick={() => setLang(l)}
-          className={`px-2 py-1 text-[10px] rounded font-mono transition-colors ${
-            lang === l
-              ? 'bg-indigo-600/70 text-indigo-200 font-semibold'
-              : 'text-gray-600 hover:text-gray-400'
-          }`}
-          title={LANG_NAMES[l]}
-        >
-          {l.toUpperCase()}
-        </button>
-      ))}
-    </div>
-  );
-}

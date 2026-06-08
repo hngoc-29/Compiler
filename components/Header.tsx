@@ -61,6 +61,8 @@ export default function Header({
 }: HeaderProps) {
   const { t } = useI18n();
   const ht = t.header;
+  const ui = t.ui;
+  const el = t.editorLayout;
   const [exportOpen, setExportOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
 
@@ -68,9 +70,9 @@ export default function Header({
   const srcFilename = langId.startsWith('python') ? 'main.py'
     : langId === 'c11' ? 'main.c'
     : 'main.cpp';
-  const srcHint = langId.startsWith('python') ? 'Python source'
-    : langId === 'c11' ? 'C source'
-    : 'C++ source';
+  const srcHint = langId.startsWith('python') ? ui.srcHints.python
+    : langId === 'c11' ? ui.srcHints.c
+    : ui.srcHints.cpp;
 
   useEffect(() => {
     const fn = (e: MouseEvent) => {
@@ -91,8 +93,8 @@ export default function Header({
 
   const exportItems = [
     { icon: <FileCode   size={13}/>, label: srcFilename, hint: srcHint,    onClick: () => doDownload(srcFilename, code) },
-    { icon: <FileText   size={13}/>, label: 'input.txt',  hint: 'Stdin input', onClick: () => doDownload('input.txt',  input) },
-    { icon: <FileOutput size={13}/>, label: 'output.txt', hint: 'Stdout',      disabled: !output,
+    { icon: <FileText   size={13}/>, label: 'input.txt',  hint: ui.fileHints.stdin, onClick: () => doDownload('input.txt',  input) },
+    { icon: <FileOutput size={13}/>, label: 'output.txt', hint: ui.fileHints.stdout,      disabled: !output,
       onClick: () => output && doDownload('output.txt', output.stdout) },
   ];
 
@@ -109,15 +111,15 @@ export default function Header({
       <div className="flex items-center gap-1.5 shrink-0">
         {onOpenInput && (
           <button onClick={onOpenInput} className="relative flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-700/60 hover:bg-gray-600/60 text-gray-300 text-xs font-medium rounded-md transition-colors border border-gray-700/50" title={ht.openInput}>
-            <Terminal size={12}/><span>Input</span>
+            <Terminal size={12}/><span>{ui.input}</span>
             {inputHasContent && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-yellow-400"/>}
           </button>
         )}
-        <button onClick={onToggleOptimize} title={optimize ? 'O2 mode' : 'Fast mode'}
+        <button onClick={onToggleOptimize} title={optimize ? ui.optimizeOn : ui.optimizeOff}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all border ${optimize ? 'bg-amber-900/40 border-amber-700/50 text-amber-300 hover:bg-amber-800/40' : 'bg-emerald-900/30 border-emerald-700/40 text-emerald-400 hover:bg-emerald-800/30'}`}>
           {optimize ? <><Gauge size={11}/><span className="hidden sm:inline">O2</span></> : <><Zap size={11}/><span className="hidden sm:inline">Fast</span></>}
         </button>
-        <button onClick={onRun} disabled={isCompiling} title="Run (Ctrl+Enter)"
+        <button onClick={onRun} disabled={isCompiling} title={`${ui.run} (Ctrl+Enter)`}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-md transition-colors">
           {isCompiling ? <Loader2 size={12} className="animate-spin"/> : <Play size={12}/>}
           <span className="hidden sm:inline">{isCompiling ? 'Running...' : 'Run'}</span>
@@ -142,7 +144,7 @@ export default function Header({
         </div>
         <ShareButton code={code} input={input} testCases={testCases}/>
         {onOpenSettings && (
-          <button onClick={onOpenSettings} title="Editor Settings"
+          <button onClick={onOpenSettings} title={el.editorSettings}
             className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-700/60 hover:bg-gray-600/60 text-gray-300 text-xs font-medium rounded-md transition-colors border border-gray-700/50">
             <Settings2 size={12}/>
           </button>
@@ -200,7 +202,7 @@ export default function Header({
             title={ht.openInput}
           >
             <Terminal size={12}/>
-            <span>Input</span>
+            <span>{ui.input}</span>
             {inputHasContent && (
               <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-yellow-400"/>
             )}
@@ -228,7 +230,7 @@ export default function Header({
         <button
           onClick={onRun}
           disabled={isCompiling}
-          title="Compile & Run (Ctrl+Enter)"
+          title={`${ui.run} (Ctrl+Enter)`}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-md transition-colors"
         >
           {isCompiling
@@ -275,7 +277,7 @@ export default function Header({
         {onOpenSettings && (
           <button
             onClick={onOpenSettings}
-            title="Editor Settings"
+            title={el.editorSettings}
             className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-700/60 hover:bg-gray-600/60 text-gray-300 text-xs font-medium rounded-md transition-colors border border-gray-700/50"
           >
             <Settings2 size={12}/>
