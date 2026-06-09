@@ -2,14 +2,16 @@
 
 /**
  * lib/i18n-context.tsx
- * React context for language selection.
- * Persists preference to localStorage.
- *
- * Adding a new language: edit lib/i18n.ts only — nothing here changes.
+ * React context for language switching.
+ * Persists choice to localStorage.
+ * No changes needed here when adding a new language — edit lib/i18n.ts only.
  */
 
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { translations, DEFAULT_LANG, SUPPORTED_LANGS, type Lang, type Translations } from './i18n/index';
+import {
+  translations, DEFAULT_LANG, SUPPORTED_LANGS,
+  type Lang, type Translations,
+} from './i18n';
 
 interface I18nContextValue {
   lang:    Lang;
@@ -28,7 +30,7 @@ const LS_KEY = 'cppeditor-lang';
 export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLangState] = useState<Lang>(DEFAULT_LANG);
 
-  /* Read preference from localStorage on mount, validate against SUPPORTED_LANGS */
+  /* Read saved preference on mount, validate against SUPPORTED_LANGS */
   useEffect(() => {
     try {
       const stored = localStorage.getItem(LS_KEY);

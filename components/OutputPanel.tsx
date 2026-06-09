@@ -200,7 +200,7 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings }
           <div className="flex flex-col items-center justify-center h-full text-gray-700 gap-2 p-8">
             <Terminal size={28} className="opacity-30"/>
             <p className="text-xs text-center leading-relaxed">
-              {ot.runHint.split('Run')[0]}<Kbd>Run</Kbd>{ot.runHint.split('Run')[1].split('Ctrl+Enter')[0]}<Kbd>Ctrl+Enter</Kbd>{ot.runHint.split('Ctrl+Enter')[1]}
+              {ot.runHint.split('Run')[0]}<Kbd>Run</Kbd>{ot.runHint.split('Run')[1]?.split('Ctrl+Enter')[0]}<Kbd>Ctrl+Enter</Kbd>{ot.runHint.split('Ctrl+Enter')[1]}
             </p>
           </div>
         )}
