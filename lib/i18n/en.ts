@@ -286,6 +286,7 @@ export const en: Translations = {
       showWarnings: { label: 'Show Warnings', desc: 'Show compiler warnings (yellow) in Errors tab' },
       fontLigatures: { label: 'Font Ligatures', desc: 'Enable ligatures (→, ≥, !=, etc. with JetBrains Mono)' },
       smoothCaret: { label: 'Smooth Caret Animation', desc: 'Animate cursor movement' },
+      useWasm: { label: 'Run in Browser (WASM)', desc: 'Execute code locally in your browser (zero server cost, offline support)' },
     },
     fontSize: 'Font Size',
     tabSize: 'Tab Size',

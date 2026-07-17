@@ -271,8 +271,9 @@ export default function EditorLayout({
     savePrefs({ ...loadPrefs(), langId: newId });
   }, [langId, code]);
 
-  // ─── Socket.IO ────────────────────────────────────────────────────────────
+  // ─── Socket.IO & WASM Worker ──────────────────────────────────────────────
   const socketRef = useRef<Socket | null>(null);
+  const wasmWorkerRef = useRef<Worker | null>(null);
 
   useEffect(() => {
     const socket = ioConnect({
@@ -284,6 +285,18 @@ export default function EditorLayout({
     return () => { socket.disconnect(); socketRef.current = null; };
   }, []);
 
+  useEffect(() => {
+    if (settings.useWasm && !wasmWorkerRef.current) {
+      wasmWorkerRef.current = new Worker('/wasm-worker.js');
+    }
+    return () => {
+      if (wasmWorkerRef.current) {
+        wasmWorkerRef.current.terminate();
+        wasmWorkerRef.current = null;
+      }
+    };
+  }, [settings.useWasm]);
+
   // ─── Core: chạy code 1 lần, trả về Promise<CompileResult> ──────────────────
   // Ưu tiên WebSocket (nhanh hơn, streaming), fallback sang HTTP.
   // Không cache — mỗi lần chạy là chạy mới với đúng input của nó.
@@ -293,6 +306,83 @@ export default function EditorLayout({
     onStdoutChunk?: (chunk: string) => void,
     interactive: boolean = false,
   ): Promise<CompileResult> => {
+    if (settings.useWasm) {
+      return new Promise(async (resolve, reject) => {
+        const worker = wasmWorkerRef.current;
+        if (!worker) return reject(new Error('WASM Worker not initialized'));
+
+        let wasmCode = codeToRun;
+        const isPython = langId === 'python3';
+
+        if (!isPython) {
+          // Compile C++ to WASM via API
+          try {
+            const res = await fetch('/api/compile-wasm', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ code: codeToRun, optimize, langId }),
+            });
+            const data = await res.json();
+            if (!res.ok || data.error) throw new Error(data.error || 'WASM compilation failed');
+            if (data.compileError) {
+              return resolve({ stdout: '', stderr: '', compileError: data.compileError, exitCode: 1, runtime: 0, timedOut: false });
+            }
+            wasmCode = data.jsCode;
+          } catch (err) {
+            return reject(err);
+          }
+        }
+
+        let stdoutBuf = '';
+        let stderrBuf = '';
+
+        const onMessage = (e: MessageEvent) => {
+          const { type, chunk, result, status, compileError } = e.data;
+          if (type === 'stdout') {
+            stdoutBuf += chunk;
+            onStdoutChunk?.(chunk);
+          } else if (type === 'stderr') {
+            stderrBuf += chunk;
+          } else if (type === 'status') {
+            // Could show status in UI
+          } else if (type === 'done') {
+            worker.removeEventListener('message', onMessage);
+            resolve({
+              stdout: stdoutBuf,
+              stderr: stderrBuf,
+              compileError: result.compileError || null,
+              exitCode: result.exitCode,
+              runtime: result.runtime,
+              timedOut: result.timedOut,
+            });
+          }
+        };
+
+        worker.addEventListener('message', onMessage);
+        worker.postMessage({
+          type: isPython ? 'run-python' : 'run-cpp',
+          code: wasmCode,
+          input: inputToRun,
+          langId,
+        });
+
+        // Timeout handling
+        setTimeout(() => {
+          worker.removeEventListener('message', onMessage);
+          worker.terminate();
+          wasmWorkerRef.current = new Worker('/wasm-worker.js'); // recreate
+          resolve({
+            stdout: stdoutBuf,
+            stderr: stderrBuf,
+            compileError: null,
+            exitCode: -1,
+            runtime: settings.runTimeoutMs,
+            timedOut: true,
+          });
+        }, settings.runTimeoutMs);
+      });
+    }
+
     return new Promise((resolve, reject) => {
       const socket = socketRef.current;
 
@@ -330,12 +420,18 @@ export default function EditorLayout({
   }, [optimize, langId, settings.runTimeoutMs]);
 
   const handleSendStdin = useCallback((data: string) => {
-    socketRef.current?.emit('compile:stdin', data);
-  }, []);
+    if (settings.useWasm && wasmWorkerRef.current) {
+      wasmWorkerRef.current.postMessage({ type: 'stdin', data });
+    } else {
+      socketRef.current?.emit('compile:stdin', data);
+    }
+  }, [settings.useWasm]);
 
   const handleEndStdin = useCallback(() => {
-    socketRef.current?.emit('compile:stdin:end');
-  }, []);
+    if (!settings.useWasm) {
+      socketRef.current?.emit('compile:stdin:end');
+    }
+  }, [settings.useWasm]);
 
   // ─── Run single (main input) ──────────────────────────────────────────────
   const handleRun = useCallback(async () => {

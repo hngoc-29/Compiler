@@ -286,6 +286,7 @@ export const vi: Translations = {
       showWarnings: { label: 'Hiện cảnh báo', desc: 'Hiện compiler warnings (màu vàng) trong tab Errors' },
       fontLigatures: { label: 'Font Ligatures', desc: 'Bật ligatures (→, ≥, !=, v.v. với JetBrains Mono)' },
       smoothCaret: { label: 'Con trỏ mượt', desc: 'Thêm hiệu ứng chuyển động cho con trỏ' },
+      useWasm: { label: 'Chạy trên trình duyệt (WASM)', desc: 'Thực thi code trực tiếp trên máy của bạn (không tốn server, hỗ trợ offline)' },
     },
     fontSize: 'Cỡ chữ',
     tabSize: 'Tab Size',

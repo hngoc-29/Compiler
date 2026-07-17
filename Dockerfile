@@ -21,8 +21,16 @@ FROM node:20-alpine AS runner
 
 WORKDIR /app
 
-# Compilers: g++, gcc (build-base), Python 3, ccache
-RUN apk add --no-cache build-base ccache python3
+# Compilers: g++, gcc (build-base), Python 3, ccache, git (for emsdk)
+RUN apk add --no-cache build-base ccache python3 git
+
+# ── Install Emscripten (for WASM compilation) ────────────────────────────────
+RUN git clone https://github.com/emscripten-core/emsdk.git /opt/emsdk && \
+    cd /opt/emsdk && \
+    ./emsdk install latest && \
+    ./emsdk activate latest && \
+    chmod -R 777 /opt/emsdk
+ENV PATH="/opt/emsdk:/opt/emsdk/upstream/emscripten:${PATH}"
 
 # ── Precompile bits/stdc++.h (speeds up first C++ run) ──────────────────────
 RUN set -e; \

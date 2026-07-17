@@ -285,6 +285,7 @@ export const zh: Translations = {
       showWarnings: { label: '显示警告', desc: '在错误选项卡中显示编译警告(黄色)' },
       fontLigatures: { label: '字体连字', desc: '启用连字(→、≥、!= 等，需 JetBrains Mono)' },
       smoothCaret: { label: '平滑光标动画', desc: '为光标移动添加动画效果' },
+      useWasm: { label: '在浏览器中运行 (WASM)', desc: '在本地执行代码（零服务器成本，支持离线）' },
     },
     fontSize: '字体大小',
     tabSize: '缩进大小',

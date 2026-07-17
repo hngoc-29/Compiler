@@ -29,6 +29,7 @@ export interface EditorSettings {
 
   // Execution
   runTimeoutMs: number;   // 5000 | 10000 | 15000 | 30000
+  useWasm: boolean;       // Run code in browser using WASM
 }
 
 export const DEFAULT_SETTINGS: EditorSettings = {
@@ -52,6 +53,7 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   tabSize: 4,
 
   runTimeoutMs: 10_000,
+  useWasm: false,
 };
 
 const KEY = 'cpp-editor-settings-v1';
