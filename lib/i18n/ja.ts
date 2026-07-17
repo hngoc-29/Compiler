@@ -112,7 +112,7 @@ export const ja: Translations = {
   shortcutsModal: {
     title: 'キーボードショートカット', footer: '? または Esc を押して閉じる',
     sections: [
-      { title: '実行', items: [{ keys: ['Ctrl', 'Enter'], desc: 'コンパイル&実行 (テストケースタブなら全テスト)' }, { keys: ['Alt', 'Shift', 'F'], desc: 'コードをフォーマット' }] },
+      { title: '実行', items: [{ keys: ['Ctrl', 'Enter'], desc: 'コンパイル&実行 (テストケースタブなら全テスト)', id: 'run' }, { keys: ['Alt', 'Shift', 'F'], desc: 'コードをフォーマット', id: 'format' }] },
       { title: 'エディタ', items: [{ keys: ['Ctrl', 'Z'], desc: '元に戻す' }, { keys: ['Ctrl', 'Y'], desc: 'やり直し' }, { keys: ['Ctrl', 'D'], desc: '現在の行を複製' }, { keys: ['Ctrl', '/'], desc: 'コメント切替' }, { keys: ['Ctrl', 'F'], desc: 'コード内検索' }, { keys: ['Ctrl', 'H'], desc: '検索と置換' }, { keys: ['Ctrl', 'G'], desc: '行番号へジャンプ...' }, { keys: ['Alt', '↑/↓'], desc: '行を上/下に移動' }, { keys: ['Ctrl', 'Shift', 'K'], desc: '現在の行を削除' }, { keys: ['Tab'], desc: 'インデント' }, { keys: ['Shift', 'Tab'], desc: 'アンインデント' }] },
       { title: 'UI', items: [{ keys: ['?'], desc: 'ショートカットモーダルを開閉' }, { keys: ['Ctrl', 'Shift', 'P'], desc: 'コマンドパレット' }] },
       { title: 'モバイル (タッチ)', items: [{ keys: ['長押し'], desc: '単語を選択し、ドラッグで拡張' }, { keys: ['コピーボタン'], desc: 'コード全体または選択範囲をコピー' }] },

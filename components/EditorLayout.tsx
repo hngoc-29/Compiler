@@ -72,6 +72,9 @@ export default function EditorLayout({
   const [isReady, setIsReady] = useState(false);
   const [optimize, setOptimize] = useState(_prefs.optimize);
   const [streamStdout, setStreamStdout] = useState('');
+  // True once the server/worker confirms the compile step is done and the
+  // program itself has started running (see BUG FIX note on isLoading below).
+  const [isActuallyRunning, setIsActuallyRunning] = useState(false);
 
   // ─── Diagnostics (from last compile error → Monaco markers) ──────────────
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
@@ -305,7 +308,21 @@ export default function EditorLayout({
     inputToRun: string,
     onStdoutChunk?: (chunk: string) => void,
     interactive: boolean = false,
+    onStatus?: (status: string) => void,
   ): Promise<CompileResult> => {
+    // BUG FIX: this used to pass `settings.runTimeoutMs` (10s by default)
+    // unconditionally as the hard kill timeout, even for interactive runs.
+    // An interactive run's clock includes however long the *user* takes to
+    // read the prompt and type a reply — 10s is nowhere near enough for real
+    // typing/thinking time, so interactive programs were getting killed as
+    // "timed out" almost immediately, defeating the whole point of real-time
+    // execution. Interactive runs now get a much longer ceiling; the process
+    // still can't run forever, but it's no longer punished for waiting on the
+    // person actually using it.
+    const effectiveTimeoutMs = interactive
+      ? Math.max(settings.runTimeoutMs, 120_000)
+      : settings.runTimeoutMs;
+
     if (settings.useWasm) {
       return new Promise(async (resolve, reject) => {
         const worker = wasmWorkerRef.current;
@@ -344,7 +361,7 @@ export default function EditorLayout({
           } else if (type === 'stderr') {
             stderrBuf += chunk;
           } else if (type === 'status') {
-            // Could show status in UI
+            onStatus?.(status);
           } else if (type === 'done') {
             worker.removeEventListener('message', onMessage);
             resolve({
@@ -376,10 +393,10 @@ export default function EditorLayout({
             stderr: stderrBuf,
             compileError: null,
             exitCode: -1,
-            runtime: settings.runTimeoutMs,
+            runtime: effectiveTimeoutMs,
             timedOut: true,
           });
-        }, settings.runTimeoutMs);
+        }, effectiveTimeoutMs);
       });
     }
 
@@ -388,6 +405,7 @@ export default function EditorLayout({
 
       if (socket?.connected) {
         const onStdout = (chunk: string) => onStdoutChunk?.(chunk);
+        const onStatusEvt = (s: string) => onStatus?.(s);
         const onDone = (result: CompileResult) => { off(); resolve(result); };
         const onErr = (e: { message?: string }) => {
           off();
@@ -395,13 +413,15 @@ export default function EditorLayout({
         };
         const off = () => {
           socket.off('compile:stdout', onStdout);
+          socket.off('compile:status', onStatusEvt);
           socket.off('compile:done', onDone);
           socket.off('compile:error', onErr);
         };
         socket.on('compile:stdout', onStdout);
+        socket.on('compile:status', onStatusEvt);
         socket.on('compile:done', onDone);
         socket.on('compile:error', onErr);
-        socket.emit('compile', { code: codeToRun, input: inputToRun, optimize, langId, timeoutMs: settings.runTimeoutMs, interactive });
+        socket.emit('compile', { code: codeToRun, input: inputToRun, optimize, langId, timeoutMs: effectiveTimeoutMs, interactive });
       } else {
         // HTTP fallback
         fetch('/api/compile', {
@@ -437,6 +457,7 @@ export default function EditorLayout({
   const handleRun = useCallback(async () => {
     if (isCompiling) return;
     setIsCompiling(true);
+    setIsActuallyRunning(false);
     setOutput(null);
     setStreamStdout('');
     setDiagnostics([]);
@@ -451,7 +472,7 @@ export default function EditorLayout({
       const result = await runOnce(code, singleInput, (chunk) => {
         buf += chunk;
         setStreamStdout(buf);
-      }, isInteractive);
+      }, isInteractive, (status) => setIsActuallyRunning(status === 'running'));
 
       toast.dismiss('run');
       setOutput(result);
@@ -480,6 +501,7 @@ export default function EditorLayout({
       toast.error(err instanceof Error ? err.message : el.cannotConnect);
     } finally {
       setIsCompiling(false);
+      setIsActuallyRunning(false);
     }
   }, [code, singleInput, isCompiling, isMobile, runOnce]);
 
@@ -692,7 +714,13 @@ export default function EditorLayout({
   // ─── Global Shortcuts ─────────────────────────────────────────────────────
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
-      if (matchesShortcut(e, shortcuts.run)) {
+      const isTextField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+      // A shortcut with no Ctrl/Cmd/Alt (e.g. someone customizes "run" to just
+      // "R") shouldn't fire while the user is simply typing that letter into
+      // the Input box or the live stdin field — only fire modifier-free
+      // shortcuts when focus isn't in an editable text field.
+      const hasModifierPart = /ctrl|cmd|alt|meta/.test(shortcuts.run.toLowerCase());
+      if ((hasModifierPart || !isTextField) && matchesShortcut(e, shortcuts.run)) {
         e.preventDefault();
         if (activeTab === 'testcases') handleRunAll();
         else handleRun();
@@ -893,7 +921,7 @@ export default function EditorLayout({
             <div className={`absolute inset-0 flex flex-col overflow-hidden ${mobileTab === 'output' ? 'flex' : 'hidden'}`}>
               <OutputPanel
                 result={liveResult}
-                isLoading={isCompiling && !streamStdout}
+                isLoading={isCompiling && !streamStdout && !isActuallyRunning}
                 onClear={() => { setOutput(null); setDiagnostics([]); }}
                 showWarnings={settings.showWarnings}
                 isRunning={isCompiling}
@@ -1075,7 +1103,7 @@ export default function EditorLayout({
             <div className="flex flex-col overflow-hidden" style={getOutputStyle()}>
               <OutputPanel
                 result={liveResult}
-                isLoading={isCompiling && !streamStdout}
+                isLoading={isCompiling && !streamStdout && !isActuallyRunning}
                 onClear={() => { setOutput(null); setDiagnostics([]); }}
                 showWarnings={settings.showWarnings}
                 isRunning={isCompiling}

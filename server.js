@@ -229,8 +229,15 @@ app.prepare().then(() => {
       activeProc = null;
 
       try {
+        // BUG FIX: this cap used to be a flat 60s regardless of `interactive`,
+        // which silently clamped the client's longer interactive timeout
+        // (120s) back down — so a run waiting on user input could still get
+        // killed well before the person finished typing. Interactive runs now
+        // get a higher ceiling; non-interactive (unattended) runs keep the
+        // tighter 60s cap since nothing is waiting on a human there.
+        const cap = interactive ? 180_000 : 60_000;
         const timeoutMs = typeof data.timeoutMs === 'number' && data.timeoutMs > 0
-          ? Math.min(data.timeoutMs, 60000) : RUN_TIMEOUT;
+          ? Math.min(data.timeoutMs, cap) : (interactive ? 120_000 : RUN_TIMEOUT);
 
         await compileAndRunStream(
           code,

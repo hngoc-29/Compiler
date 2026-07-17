@@ -211,8 +211,8 @@ export const zh: Translations = {
       {
         title: '运行代码',
         items: [
-          { keys: ['Ctrl', 'Enter'], desc: '编译并运行(测试用例选项卡则运行全部)' },
-          { keys: ['Alt', 'Shift', 'F'], desc: '格式化代码(自动美化)' },
+          { keys: ['Ctrl', 'Enter'], desc: '编译并运行(测试用例选项卡则运行全部)', id: 'run' },
+          { keys: ['Alt', 'Shift', 'F'], desc: '格式化代码(自动美化)', id: 'format' },
         ],
       },
       {

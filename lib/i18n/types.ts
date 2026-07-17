@@ -7,7 +7,7 @@
 /*  Type helpers                                                               */
 /* ─────────────────────────────────────────────────────────────────────────── */
 
-interface ShortcutItem { keys: string[]; desc: string }
+interface ShortcutItem { keys: string[]; desc: string; id?: 'run' | 'format' }
 interface ShortcutSection { title: string; color: string; items: ShortcutItem[] }
 interface ModalSection { title: string; items: ShortcutItem[] }
 interface StatusRow { label: string; color: string; desc: string }

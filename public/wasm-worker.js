@@ -57,7 +57,25 @@ self.onmessage = async (e) => {
 
             self.t0 = Date.now();
 
-            eval(code);
+            // BUG FIX: `eval(code)` here used to be a *direct* eval call. Direct eval
+            // runs inside the current (nested, async-function) lexical scope, and
+            // Emscripten's emitted glue code starts with
+            // `var Module = typeof Module != 'undefined' ? Module : {};`.
+            // Because of `var` hoisting, that declaration creates a LOCAL `Module`
+            // binding for the whole eval'd script *before* the RHS even runs — so
+            // `typeof Module` always saw the hoisted-but-unassigned local (`undefined`),
+            // never our pre-configured `self.Module` above. The glue code silently
+            // built its own throwaway `{}` instead: our print/printErr/stdin/quit
+            // hooks were ignored (no stdout/stderr/stdin capture), and afterwards
+            // `self.Module.calledRun` / `self.Module.callMain` below were reading
+            // properties that were never populated (they belonged to the glue's
+            // *real*, disconnected Module object) — so every C++ WASM run crashed
+            // with "self.Module.callMain is not a function" instead of executing.
+            // `self.eval(...)` is an *indirect* eval, which always runs in the
+            // worker's true global scope — there, `var Module` reuses the existing
+            // global property instead of shadowing it, so the glue code correctly
+            // sees and populates our `self.Module` config object.
+            self.eval(code);
 
             if (self.Module.calledRun !== true) {
                 if (self.Module.onRuntimeInitialized) {

@@ -1,10 +1,9 @@
 # ════════════════════════════════════════════════════════════════
 # STAGE 1 – Builder
 # ════════════════════════════════════════════════════════════════
-FROM node:20-alpine AS builder
+FROM node:20-bookworm-slim AS builder
 
 WORKDIR /app
-RUN apk add --no-cache libc6-compat
 
 COPY package.json package-lock.json* ./
 RUN npm ci
@@ -15,14 +14,26 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 # ════════════════════════════════════════════════════════════════
-# STAGE 2 – Runner: g++ / gcc / python3 + ccache + PCH
+# STAGE 2 – Runner: g++ / gcc / python3 + ccache + PCH + Emscripten
 # ════════════════════════════════════════════════════════════════
-FROM node:20-alpine AS runner
+# BUG FIX: this used to be `node:20-alpine`. Alpine uses musl libc, but the
+# Emscripten SDK (installed below, for the "run with client/browser resources"
+# WASM feature) ships prebuilt LLVM/clang/Node binaries linked against glibc.
+# Those binaries fail to run at all on musl (no matching dynamic linker /
+# missing GLIBC symbol versions) — this was silently breaking every WASM
+# compile in production. A glibc-based Debian image is the standard,
+# reliably-supported target for emsdk's prebuilt toolchain, so both stages
+# now use the same Debian base (also avoids any musl/glibc mismatch for
+# native node_modules copied between the builder and runner stages).
+FROM node:20-bookworm-slim AS runner
 
 WORKDIR /app
 
-# Compilers: g++, gcc (build-base), Python 3, ccache, git (for emsdk)
-RUN apk add --no-cache build-base ccache python3 git
+# Compilers: g++, gcc (build-essential), Python 3, ccache, git (for emsdk),
+# ca-certificates (emsdk clones/downloads over https), wget (HEALTHCHECK).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential ccache python3 git ca-certificates wget xz-utils \
+    && rm -rf /var/lib/apt/lists/*
 
 # ── Install Emscripten (for WASM compilation) ────────────────────────────────
 RUN git clone https://github.com/emscripten-core/emsdk.git /opt/emsdk && \
@@ -46,7 +57,7 @@ RUN set -e; \
     fi
 
 # ── Verify toolchain ─────────────────────────────────────────────────────────
-RUN g++ --version && gcc --version && python3 --version
+RUN g++ --version && gcc --version && python3 --version && emcc --version
 
 # ── Hugging Face Toàn Cầu Biến Môi Trường (Ép chạy cổng 7860) ──────────────────
 # ... (Giữ nguyên toàn bộ phần toolchain g++ và env phía trên)
@@ -61,7 +72,7 @@ ENV CCACHE_COMPRESS=1
 ENV PATH=/usr/lib/ccache:$PATH
 ENV HOME=/home/node
 
-# SỬA ĐOẠN NÀY: Dùng trực tiếp user 'node' (UID/GID 1000) có sẵn của Alpine
+# Debian's official node image also ships a 'node' user (UID/GID 1000).
 RUN mkdir -p /home/node /tmp/ccache && chown -R node:node /home/node /tmp/ccache
 
 # ── Copy bản build Next.js Standalone (Sửa chown thành node:node) ──────────────

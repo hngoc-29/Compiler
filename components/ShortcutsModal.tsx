@@ -100,10 +100,14 @@ export default function ShortcutsModal({ open, onClose, shortcuts, onChange }: S
               </h3>
               <div className="space-y-1">
                 {section.items.map((item, i) => {
-                  // Determine if this item is editable
-                  let shortcutKey: keyof Shortcuts | null = null;
-                  if (item.desc.includes('Compile & Run') || item.desc.includes('Chạy code')) shortcutKey = 'run';
-                  else if (item.desc.includes('Format code') || item.desc.includes('Định dạng code')) shortcutKey = 'format';
+                  // BUG FIX: this used to detect the editable row by checking whether
+                  // item.desc contained the literal English string 'Compile & Run' or
+                  // the Vietnamese 'Chạy code'. The ja/zh translations don't contain
+                  // either substring (they're fully translated, e.g. 'コンパイル&実行'),
+                  // so shortcutKey stayed null and the edit (pencil) button never
+                  // appeared at all in those locales — shortcut customization was
+                  // silently unreachable outside en/vi. item.id is locale-independent.
+                  const shortcutKey = item.id ?? null;
 
                   const isRecording = recordingKey === shortcutKey;
                   const displayKeys = shortcutKey ? shortcuts[shortcutKey].split('+') : item.keys;

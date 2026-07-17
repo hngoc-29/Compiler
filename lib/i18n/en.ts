@@ -212,8 +212,8 @@ export const en: Translations = {
       {
         title: 'Run Code',
         items: [
-          { keys: ['Ctrl', 'Enter'], desc: 'Compile & Run (or Run All if on Test Cases tab)' },
-          { keys: ['Alt', 'Shift', 'F'], desc: 'Format code (auto-beautify)' },
+          { keys: ['Ctrl', 'Enter'], desc: 'Compile & Run (or Run All if on Test Cases tab)', id: 'run' },
+          { keys: ['Alt', 'Shift', 'F'], desc: 'Format code (auto-beautify)', id: 'format' },
         ],
       },
       {

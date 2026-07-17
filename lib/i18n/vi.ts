@@ -212,8 +212,8 @@ export const vi: Translations = {
       {
         title: 'Chạy code',
         items: [
-          { keys: ['Ctrl', 'Enter'], desc: 'Compile & Run (hoặc Run All nếu đang ở tab Test Cases)' },
-          { keys: ['Alt', 'Shift', 'F'], desc: 'Format code (đẹp code tự động)' },
+          { keys: ['Ctrl', 'Enter'], desc: 'Compile & Run (hoặc Run All nếu đang ở tab Test Cases)', id: 'run' },
+          { keys: ['Alt', 'Shift', 'F'], desc: 'Format code (đẹp code tự động)', id: 'format' },
         ],
       },
       {

@@ -39,19 +39,30 @@ export function saveShortcuts(s: Shortcuts): void {
 
 export function matchesShortcut(e: KeyboardEvent, shortcut: string): boolean {
     const parts = shortcut.toLowerCase().split('+').map(p => p.trim());
-    const ctrl = parts.includes('ctrl') || parts.includes('cmd');
-    const shift = parts.includes('shift');
-    const alt = parts.includes('alt');
-    const meta = parts.includes('meta') || parts.includes('cmd');
+    // "ctrl" and "cmd" are treated as the same "primary modifier" (Ctrl on
+    // Windows/Linux, Cmd on Mac) — so either physical key should satisfy it.
+    const wantPrimary = parts.includes('ctrl') || parts.includes('cmd');
+    const wantShift = parts.includes('shift');
+    const wantAlt = parts.includes('alt');
+    // Explicit "meta" (not via the ctrl/cmd alias above) means the Meta/Win key specifically.
+    const wantMeta = parts.includes('meta');
 
     const keyPart = parts[parts.length - 1];
 
-    if (e.ctrlKey !== ctrl && e.metaKey !== meta) {
-        // Allow Ctrl or Meta to match 'ctrl' or 'cmd'
-        if (!(ctrl && (e.ctrlKey || e.metaKey))) return false;
-    }
-    if (e.shiftKey !== shift) return false;
-    if (e.altKey !== alt) return false;
+    // BUG FIX: the previous check was `if (e.ctrlKey !== ctrl && e.metaKey !== meta) { if (!(...)) return false; }`.
+    // Because of that outer `&&`, the rejection logic only ever ran when BOTH
+    // ctrlKey and metaKey simultaneously mismatched what the shortcut wanted —
+    // so e.g. pressing plain "Enter" (ctrlKey=false, metaKey=false) against the
+    // shortcut "Ctrl+Enter" (ctrl=true, meta=false) had `e.metaKey !== meta` →
+    // `false !== false` → false, which short-circuited the whole check and let
+    // a bare Enter incorrectly match "Ctrl+Enter". Extra unwanted modifiers
+    // (e.g. Ctrl+F matching a shortcut defined as just "F") were similarly not
+    // rejected. Each modifier is now checked independently and exactly.
+    const hasPrimary = e.ctrlKey || e.metaKey;
+    if (hasPrimary !== wantPrimary) return false;
+    if (e.shiftKey !== wantShift) return false;
+    if (e.altKey !== wantAlt) return false;
+    if (wantMeta && !e.metaKey) return false;
 
     const key = e.key.toLowerCase();
     const code = e.code.toLowerCase();
