@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
-    "@webassemblyjs/wasm-parser": "^1.14.1",
     "fflate": "^0.8.2",
     "lucide-react": "^0.462.0",
     "next": "15.1.0",
