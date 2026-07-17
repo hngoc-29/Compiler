@@ -12,6 +12,8 @@ import dynamic from 'next/dynamic';
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { Loader2, Undo2, Redo2, Copy, Check } from 'lucide-react';
 import type { EditorSettings } from '@/lib/editor-settings';
+import type { Shortcuts } from '@/lib/shortcuts';
+import { toMonacoKeybinding } from '@/lib/shortcuts';
 import { useI18n } from '@/lib/i18n-context';
 
 // Track globally so we only register Monaco providers once (they persist across mounts)
@@ -30,13 +32,14 @@ const MonacoEditor = dynamic(
 );
 
 interface CodeEditorProps {
-  value:        string;
-  onChange:     (value: string | undefined) => void;
-  onRun:        () => void;
-  language?:    string;
-  readOnly?:    boolean;
+  value: string;
+  onChange: (value: string | undefined) => void;
+  onRun: () => void;
+  language?: string;
+  readOnly?: boolean;
   diagnostics?: { line: number; col: number; message: string; severity: 'error' | 'warning' }[];
-  settings?:    EditorSettings;
+  settings?: EditorSettings;
+  shortcuts?: Shortcuts;
 }
 
 const isTouchDevice = () =>
@@ -134,7 +137,7 @@ function setupMobileInteractions(editor: any, onSelectionChange?: (text: string 
       const pos = clientToPosition(touch.clientX, touch.clientY);
       if (!pos) return;
       const model = editor.getModel();
-      const word  = model?.getWordAtPosition(pos);
+      const word = model?.getWordAtPosition(pos);
       if (word) {
         anchorPos = { lineNumber: pos.lineNumber, column: word.startColumn };
         editor.setSelection({ startLineNumber: pos.lineNumber, startColumn: word.startColumn, endLineNumber: pos.lineNumber, endColumn: word.endColumn });
@@ -164,27 +167,30 @@ function setupMobileInteractions(editor: any, onSelectionChange?: (text: string 
   }, { passive: false });
 
   const endSelect = () => { cancelLongPress(); isSelectMode = false; anchorPos = null; };
-  domNode.addEventListener('touchend',    endSelect, { passive: true });
+  domNode.addEventListener('touchend', endSelect, { passive: true });
   domNode.addEventListener('touchcancel', endSelect, { passive: true });
 }
 
 export default function CodeEditor({
-  value, onChange, onRun, language = 'cpp', readOnly = false, diagnostics = [], settings,
+  value, onChange, onRun, language = 'cpp', readOnly = false, diagnostics = [], settings, shortcuts,
 }: CodeEditorProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const editorRef    = useRef<any>(null);
+  const editorRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const monacoRef    = useRef<any>(null);
+  const monacoRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  // Keep a ref to onRun so Monaco keybinding always calls the latest version
+  const onRunRef = useRef(onRun);
+  onRunRef.current = onRun;
   const { t } = useI18n();
   const ce = t.codeEditor;
 
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   // Mobile copy/select state
-  const [isTouch,      setIsTouch]      = useState(false);
+  const [isTouch, setIsTouch] = useState(false);
   const [mobileSelText, setMobileSelText] = useState<string | null>(null);
-  const [copyDone,     setCopyDone]     = useState(false);
+  const [copyDone, setCopyDone] = useState(false);
   // Ref holds the latest selected text — never stale, immune to re-render timing
   const mobileSelRef = useRef<string | null>(null);
 
@@ -239,32 +245,32 @@ export default function CodeEditor({
     if (!editor || !settings) return;
 
     editor.updateOptions({
-      minimap:                 { enabled: settings.minimap },
-      wordWrap:                settings.wordWrap ? 'on' : 'off',
-      lineNumbers:             settings.lineNumbers ? 'on' : 'off',
+      minimap: { enabled: settings.minimap },
+      wordWrap: settings.wordWrap ? 'on' : 'off',
+      lineNumbers: settings.lineNumbers ? 'on' : 'off',
       bracketPairColorization: { enabled: settings.bracketPairColorization },
-      renderWhitespace:        settings.renderWhitespace ? 'selection' : 'none',
-      fontLigatures:           settings.fontLigatures,
-      cursorBlinking:          settings.smoothCaret ? 'smooth' : 'blink',
+      renderWhitespace: settings.renderWhitespace ? 'selection' : 'none',
+      fontLigatures: settings.fontLigatures,
+      cursorBlinking: settings.smoothCaret ? 'smooth' : 'blink',
       cursorSmoothCaretAnimation: settings.smoothCaret ? 'on' : 'off',
-      fontSize:                settings.fontSize,
-      tabSize:                 settings.tabSize,
+      fontSize: settings.fontSize,
+      tabSize: settings.tabSize,
       // Suggestions master toggle
       suggestOnTriggerCharacters: settings.suggestions,
       quickSuggestions: settings.suggestions && settings.quickSuggestions
         ? { other: true, comments: false, strings: false }
         : false,
-      parameterHints:  { enabled: settings.suggestions && settings.parameterHints },
+      parameterHints: { enabled: settings.suggestions && settings.parameterHints },
       suggest: {
         snippetsPreventQuickSuggestions: false,
-        showSnippets:  settings.suggestions && settings.snippets,
-        showKeywords:  settings.suggestions,
+        showSnippets: settings.suggestions && settings.snippets,
+        showKeywords: settings.suggestions,
         showFunctions: settings.suggestions,
         showVariables: settings.suggestions,
-        showClasses:   settings.suggestions,
-        showStructs:   settings.suggestions,
+        showClasses: settings.suggestions,
+        showStructs: settings.suggestions,
         filterGraceful: true,
-        localityBonus:  true,
+        localityBonus: true,
       },
     });
   }, [settings]);
@@ -326,15 +332,62 @@ export default function CodeEditor({
   }, []); // No mobileSelText dep — reads ref instead
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const keybindingsRef = useRef<any[]>([]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!editor || !monaco || !shortcuts) return;
+
+    // Dispose old keybindings
+    keybindingsRef.current.forEach(d => d.dispose());
+    keybindingsRef.current = [];
+
+    const runBinding = toMonacoKeybinding(monaco, shortcuts.run);
+    if (runBinding) {
+      keybindingsRef.current.push(
+        editor.addCommand(runBinding, () => onRunRef.current())
+      );
+    }
+
+    const formatBinding = toMonacoKeybinding(monaco, shortcuts.format);
+    if (formatBinding) {
+      keybindingsRef.current.push(
+        editor.addCommand(formatBinding, () => editor.getAction('editor.action.formatDocument')?.run())
+      );
+    }
+  }, [shortcuts]);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleMount = (editor: any, monaco: any) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
 
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, onRun);
-    editor.addCommand(
-      monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF,
-      () => editor.getAction('editor.action.formatDocument')?.run(),
-    );
+    if (shortcuts) {
+      const runBinding = toMonacoKeybinding(monaco, shortcuts.run);
+      if (runBinding) {
+        keybindingsRef.current.push(
+          editor.addCommand(runBinding, () => onRunRef.current())
+        );
+      }
+      const formatBinding = toMonacoKeybinding(monaco, shortcuts.format);
+      if (formatBinding) {
+        keybindingsRef.current.push(
+          editor.addCommand(formatBinding, () => editor.getAction('editor.action.formatDocument')?.run())
+        );
+      }
+    } else {
+      // Fallback if shortcuts not provided
+      keybindingsRef.current.push(
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => onRunRef.current())
+      );
+      keybindingsRef.current.push(
+        editor.addCommand(
+          monaco.KeyMod.Alt | monaco.KeyMod.Shift | monaco.KeyCode.KeyF,
+          () => editor.getAction('editor.action.formatDocument')?.run()
+        )
+      );
+    }
 
     // Register C++ suggestions (once per Monaco instance, globally tracked)
     if ((language === 'cpp' || language === 'c') && !_registeredLangs.has(language)) {
@@ -459,50 +512,50 @@ export default function CodeEditor({
         onChange={onChange}
         onMount={handleMount}
         options={{
-          fontFamily:           "'JetBrains Mono', 'Fira Code', Consolas, monospace",
-          fontSize:             s?.fontSize ?? 13,
-          fontLigatures:        s?.fontLigatures ?? true,
-          lineHeight:           22,
-          minimap:              { enabled: s?.minimap ?? false },
+          fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
+          fontSize: s?.fontSize ?? 13,
+          fontLigatures: s?.fontLigatures ?? true,
+          lineHeight: 22,
+          minimap: { enabled: s?.minimap ?? false },
           scrollBeyondLastLine: false,
-          wordWrap:             (s?.wordWrap ? 'on' : 'off') as any,
-          tabSize:              s?.tabSize ?? 4,
-          insertSpaces:         true,
+          wordWrap: (s?.wordWrap ? 'on' : 'off') as any,
+          tabSize: s?.tabSize ?? 4,
+          insertSpaces: true,
           readOnly,
-          folding:              true,
+          folding: true,
           bracketPairColorization: { enabled: s?.bracketPairColorization ?? true },
-          autoClosingBrackets:  'always',
-          autoClosingQuotes:    'always',
+          autoClosingBrackets: 'always',
+          autoClosingQuotes: 'always',
           // Suggestions
           suggestOnTriggerCharacters: s?.suggestions ?? true,
           quickSuggestions: (s?.suggestions ?? true) && (s?.quickSuggestions ?? true)
             ? { other: true, comments: false, strings: false }
             : false,
-          parameterHints:  { enabled: (s?.suggestions ?? true) && (s?.parameterHints ?? true) },
+          parameterHints: { enabled: (s?.suggestions ?? true) && (s?.parameterHints ?? true) },
           suggest: {
             snippetsPreventQuickSuggestions: false,
-            showSnippets:  (s?.suggestions ?? true) && (s?.snippets ?? true),
-            showKeywords:  s?.suggestions ?? true,
+            showSnippets: (s?.suggestions ?? true) && (s?.snippets ?? true),
+            showKeywords: s?.suggestions ?? true,
             showFunctions: s?.suggestions ?? true,
             showVariables: s?.suggestions ?? true,
-            showClasses:   s?.suggestions ?? true,
-            showStructs:   s?.suggestions ?? true,
+            showClasses: s?.suggestions ?? true,
+            showStructs: s?.suggestions ?? true,
             filterGraceful: true,
-            localityBonus:  true,
+            localityBonus: true,
           },
-          acceptSuggestionOnEnter:    'smart',
-          smoothScrolling:            true,
-          cursorBlinking:             (s?.smoothCaret ?? true) ? 'smooth' : 'blink',
+          acceptSuggestionOnEnter: 'smart',
+          smoothScrolling: true,
+          cursorBlinking: (s?.smoothCaret ?? true) ? 'smooth' : 'blink',
           cursorSmoothCaretAnimation: (s?.smoothCaret ?? true) ? 'on' : 'off',
-          padding:                    { top: 10, bottom: 80 },
-          lineNumbers:                (s?.lineNumbers ?? true) ? 'on' : 'off',
-          lineDecorationsWidth:       6,
-          lineNumbersMinChars:        3,
-          renderWhitespace:           (s?.renderWhitespace ? 'selection' : 'none') as any,
-          overviewRulerLanes:         3,
-          hideCursorInOverviewRuler:  false,
+          padding: { top: 10, bottom: 80 },
+          lineNumbers: (s?.lineNumbers ?? true) ? 'on' : 'off',
+          lineDecorationsWidth: 6,
+          lineNumbersMinChars: 3,
+          renderWhitespace: (s?.renderWhitespace ? 'selection' : 'none') as any,
+          overviewRulerLanes: 3,
+          hideCursorInOverviewRuler: false,
           scrollbar: {
-            verticalScrollbarSize:   6,
+            verticalScrollbarSize: 6,
             horizontalScrollbarSize: 6,
             alwaysConsumeMouseWheel: false,
           },

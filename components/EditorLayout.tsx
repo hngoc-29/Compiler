@@ -15,16 +15,16 @@ import { toast } from 'sonner';
 import { io as ioConnect, type Socket } from 'socket.io-client';
 
 import Header, { type PanelVisibility } from './Header';
-import CodeEditor       from './CodeEditor';
-import InputDrawer      from './InputDrawer';
-import OutputDrawer     from './OutputDrawer';
+import CodeEditor from './CodeEditor';
+import InputDrawer from './InputDrawer';
+import OutputDrawer from './OutputDrawer';
 import OutputPanel, { type CompileResult } from './OutputPanel';
 import ResizableDivider from './ResizableDivider';
-import TestCasePanel    from './TestCasePanel';
+import TestCasePanel from './TestCasePanel';
 import LanguageSelector from './LanguageSelector';
-import TemplatesPanel  from './TemplatesPanel';
-import ShortcutsModal  from './ShortcutsModal';
-import SettingsPanel    from './SettingsPanel';
+import TemplatesPanel from './TemplatesPanel';
+import ShortcutsModal from './ShortcutsModal';
+import SettingsPanel from './SettingsPanel';
 
 import { addToHistory } from '@/lib/run-history';
 
@@ -35,7 +35,8 @@ import { getLangById, DEFAULT_LANG_ID } from '@/lib/languages';
 import { DEFAULT_TEST_CASES, type TestCase, type SavedTestCase, createTestCase, compareOutput, serializeTestCases, deserializeTestCases } from '@/lib/testcases';
 import { parseGppDiagnostics, type Diagnostic } from '@/lib/cpp-suggestions';
 import { loadSettings, saveSettings, type EditorSettings } from '@/lib/editor-settings';
-import { loadPrefs,   savePrefs                            } from '@/lib/user-prefs';
+import { loadShortcuts, saveShortcuts, matchesShortcut, type Shortcuts } from '@/lib/shortcuts';
+import { loadPrefs, savePrefs } from '@/lib/user-prefs';
 import { Copy, Check, Loader2, Code2, AlignLeft, ClipboardList, MonitorDot, Play, Zap, Gauge, Settings2, Eye, LibrarySquare, Keyboard } from 'lucide-react';
 import { useI18n } from '@/lib/i18n-context';
 import LangSelect from '@/components/LangSelect';
@@ -43,9 +44,9 @@ import LangSelect from '@/components/LangSelect';
 const MIN_PX = 120;
 
 interface EditorLayoutProps {
-  initialCode?:       string;
-  initialInput?:      string;
-  initialTestCases?:  SavedTestCase[];
+  initialCode?: string;
+  initialInput?: string;
+  initialTestCases?: SavedTestCase[];
   isSharedView?: boolean;
 }
 
@@ -61,14 +62,14 @@ export default function EditorLayout({
   const _prefs = useState(loadPrefs)[0];
 
   // ─── Language ────────────────────────────────────────────────────────────
-  const [langId,   setLangId]   = useState(_prefs.langId);
+  const [langId, setLangId] = useState(_prefs.langId);
   const lang = getLangById(langId);
 
   // ─── Content ─────────────────────────────────────────────────────────────
-  const [code,  setCode]  = useState(initialCode  ?? lang.hello);
-  const [output, setOutput]       = useState<CompileResult | null>(null);
+  const [code, setCode] = useState(initialCode ?? lang.hello);
+  const [output, setOutput] = useState<CompileResult | null>(null);
   const [isCompiling, setIsCompiling] = useState(false);
-  const [isReady,  setIsReady]  = useState(false);
+  const [isReady, setIsReady] = useState(false);
   const [optimize, setOptimize] = useState(_prefs.optimize);
   const [streamStdout, setStreamStdout] = useState('');
 
@@ -77,6 +78,7 @@ export default function EditorLayout({
 
   // ─── Editor Settings ─────────────────────────────────────────────────────
   const [settings, setSettings] = useState<EditorSettings>(loadSettings);
+  const [shortcuts, setShortcuts] = useState<Shortcuts>(loadShortcuts);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -86,13 +88,18 @@ export default function EditorLayout({
     saveSettings(s);
   };
 
+  const handleShortcutsChange = (s: Shortcuts) => {
+    setShortcuts(s);
+    saveShortcuts(s);
+  };
+
   // ─── Test cases ──────────────────────────────────────────────────────────
-  const [testCases, setTestCases]     = useState<TestCase[]>(
+  const [testCases, setTestCases] = useState<TestCase[]>(
     initialTestCases ? deserializeTestCases(initialTestCases) : DEFAULT_TEST_CASES
   );
   const [isRunningAll, setIsRunningAll] = useState(false);
-  const [runningTcId, setRunningTcId]   = useState<string | null>(null);
-  const [activeTab, setActiveTab]       = useState<'single' | 'testcases'>(_prefs.activeTab);
+  const [runningTcId, setRunningTcId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'single' | 'testcases'>(_prefs.activeTab);
 
   // Single-run input (for backward compat with single tab)
   const singleInput = testCases[0]?.input ?? '';
@@ -110,7 +117,7 @@ export default function EditorLayout({
 
   // ─── Desktop resize ──────────────────────────────────────────────────────
   const containerRef = useRef<HTMLDivElement>(null);
-  const [codeW,  setCodeW]  = useState(0);
+  const [codeW, setCodeW] = useState(0);
   const [inputW, setInputW] = useState(0);
 
   // ─── Viewport height ─────────────────────────────────────────────────────
@@ -186,15 +193,15 @@ export default function EditorLayout({
   const handleDragCode = useCallback((delta: number) => {
     if (!containerRef.current) return;
     const total = containerRef.current.offsetWidth;
-    const maxW  = total - (panels.input ? MIN_PX : 0) - (panels.output ? MIN_PX : 0) - 8;
+    const maxW = total - (panels.input ? MIN_PX : 0) - (panels.output ? MIN_PX : 0) - 8;
     setCodeW(prev => clamp(prev + delta, MIN_PX, maxW));
   }, [panels]);
 
   const handleDragInput = useCallback((delta: number) => {
     if (!containerRef.current) return;
-    const total      = containerRef.current.offsetWidth;
+    const total = containerRef.current.offsetWidth;
     const usedByCode = panels.code ? codeW : 0;
-    const maxW       = total - usedByCode - (panels.output ? MIN_PX : 0) - 8;
+    const maxW = total - usedByCode - (panels.output ? MIN_PX : 0) - 8;
     setInputW(prev => clamp(prev + delta, MIN_PX, maxW));
   }, [panels, codeW]);
 
@@ -245,7 +252,7 @@ export default function EditorLayout({
           setSingleInput(parsed.input);
         }
       } catch { localStorage.removeItem(AUTOSAVE_KEY); }
-      finally  { setIsReady(true); }
+      finally { setIsReady(true); }
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -284,32 +291,33 @@ export default function EditorLayout({
     codeToRun: string,
     inputToRun: string,
     onStdoutChunk?: (chunk: string) => void,
+    interactive: boolean = false,
   ): Promise<CompileResult> => {
     return new Promise((resolve, reject) => {
       const socket = socketRef.current;
 
       if (socket?.connected) {
         const onStdout = (chunk: string) => onStdoutChunk?.(chunk);
-        const onDone   = (result: CompileResult) => { off(); resolve(result); };
-        const onErr    = (e: { message?: string }) => {
+        const onDone = (result: CompileResult) => { off(); resolve(result); };
+        const onErr = (e: { message?: string }) => {
           off();
           reject(new Error(e?.message || 'Socket error'));
         };
         const off = () => {
           socket.off('compile:stdout', onStdout);
-          socket.off('compile:done',   onDone);
-          socket.off('compile:error',  onErr);
+          socket.off('compile:done', onDone);
+          socket.off('compile:error', onErr);
         };
         socket.on('compile:stdout', onStdout);
-        socket.on('compile:done',   onDone);
-        socket.on('compile:error',  onErr);
-        socket.emit('compile', { code: codeToRun, input: inputToRun, optimize, langId, timeoutMs: settings.runTimeoutMs });
+        socket.on('compile:done', onDone);
+        socket.on('compile:error', onErr);
+        socket.emit('compile', { code: codeToRun, input: inputToRun, optimize, langId, timeoutMs: settings.runTimeoutMs, interactive });
       } else {
         // HTTP fallback
         fetch('/api/compile', {
-          method:  'POST',
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ code: codeToRun, input: inputToRun, optimize, langId, timeoutMs: settings.runTimeoutMs }),
+          body: JSON.stringify({ code: codeToRun, input: inputToRun, optimize, langId, timeoutMs: settings.runTimeoutMs }),
         })
           .then(res => res.ok
             ? res.json()
@@ -319,7 +327,15 @@ export default function EditorLayout({
           .catch(reject);
       }
     });
-  }, [optimize, langId]);
+  }, [optimize, langId, settings.runTimeoutMs]);
+
+  const handleSendStdin = useCallback((data: string) => {
+    socketRef.current?.emit('compile:stdin', data);
+  }, []);
+
+  const handleEndStdin = useCallback(() => {
+    socketRef.current?.emit('compile:stdin:end');
+  }, []);
 
   // ─── Run single (main input) ──────────────────────────────────────────────
   const handleRun = useCallback(async () => {
@@ -333,10 +349,13 @@ export default function EditorLayout({
 
     let buf = '';
     try {
+      // If single input is empty, we assume interactive mode
+      const isInteractive = singleInput.trim() === '';
+
       const result = await runOnce(code, singleInput, (chunk) => {
         buf += chunk;
         setStreamStdout(buf);
-      });
+      }, isInteractive);
 
       toast.dismiss('run');
       setOutput(result);
@@ -356,9 +375,9 @@ export default function EditorLayout({
         toast.error(el.compileError);
       } else {
         setDiagnostics([]);
-        if (result.timedOut)            toast.warning(el.timeoutWarning);
+        if (result.timedOut) toast.warning(el.timeoutWarning);
         else if (result.exitCode !== 0) toast.warning(`⚠️ Exit ${result.exitCode}`);
-        else                            toast.success(`✅ OK · ${result.runtime}ms`);
+        else toast.success(`✅ OK · ${result.runtime}ms`);
       }
     } catch (err) {
       toast.dismiss('run');
@@ -384,22 +403,22 @@ export default function EditorLayout({
 
       const hasExpected = tc.expectedOutput?.trim().length > 0;
       let status: TestCase['status'];
-      if (result.compileError)        status = 'error';
-      else if (result.timedOut)       status = 'timeout';
+      if (result.compileError) status = 'error';
+      else if (result.timedOut) status = 'timeout';
       else if (result.exitCode !== 0) status = 'error';
       else if (hasExpected && !compareOutput(result.stdout, tc.expectedOutput)) status = 'wrong';
-      else                            status = 'ok';
+      else status = 'ok';
 
       setTestCases(prev => prev.map(t => t.id === tc.id ? {
         ...t, status,
-        output:  result.compileError ? null : result.stdout,
-        error:   result.compileError ?? (result.stderr || null),
+        output: result.compileError ? null : result.stdout,
+        error: result.compileError ?? (result.stderr || null),
         runtime: result.runtime,
       } : t));
 
-      if (status === 'error')        toast.error(`❌ ${tc.label}: ${result.compileError ? t.ui.badges.compileError : `Exit ${result.exitCode}`}`);
+      if (status === 'error') toast.error(`❌ ${tc.label}: ${result.compileError ? t.ui.badges.compileError : `Exit ${result.exitCode}`}`);
       else if (status === 'timeout') toast.warning(`⏱ ${tc.label}: Timeout`);
-      else if (status === 'wrong')   toast.error(`❌ ${tc.label}: Wrong Answer`);
+      else if (status === 'wrong') toast.error(`❌ ${tc.label}: Wrong Answer`);
       else toast.success(`✅ ${tc.label}: ${hasExpected ? 'PASS' : `OK · ${result.runtime}ms`}`);
     } catch (err) {
       setTestCases(prev => prev.map(t => t.id === tc.id
@@ -458,7 +477,7 @@ export default function EditorLayout({
           stdout: string; stderr: string;
           exitCode: number; runtime: number; timedOut: boolean;
         }) => {
-          const tc   = snapshot[data.index];
+          const tc = snapshot[data.index];
           const next = snapshot[data.index + 1];
           if (!tc) return;
 
@@ -469,19 +488,19 @@ export default function EditorLayout({
 
           const hasExpected = tc.expectedOutput?.trim().length > 0;
           let status: TestCase['status'];
-          if      (data.timedOut)                                              status = 'timeout';
-          else if (data.exitCode !== 0)                                        status = 'error';
+          if (data.timedOut) status = 'timeout';
+          else if (data.exitCode !== 0) status = 'error';
           else if (hasExpected && !compareOutput(data.stdout, tc.expectedOutput)) status = 'wrong';
-          else                                                                 status = 'ok';
+          else status = 'ok';
 
-          if      (status === 'ok')    passCount++;
+          if (status === 'ok') passCount++;
           else if (status === 'wrong') failCount++;
-          else                         errCount++;
+          else errCount++;
 
           setTestCases(prev => prev.map(t => t.id === tc.id ? {
             ...t, status,
-            output:  data.stdout,
-            error:   data.stderr || null,
+            output: data.stdout,
+            error: data.stderr || null,
             runtime: data.runtime,
           } : t));
         };
@@ -503,28 +522,28 @@ export default function EditorLayout({
         };
 
         const off = () => {
-          socket.off('compile:batch:status',  onStatus);
-          socket.off('compile:batch:error',   onCompileError);
-          socket.off('compile:batch:result',  onResult);
-          socket.off('compile:batch:done',    onDone);
-          socket.off('compile:error',         onErr);
+          socket.off('compile:batch:status', onStatus);
+          socket.off('compile:batch:error', onCompileError);
+          socket.off('compile:batch:result', onResult);
+          socket.off('compile:batch:done', onDone);
+          socket.off('compile:error', onErr);
         };
 
         socket.on('compile:batch:status', onStatus);
-        socket.on('compile:batch:error',  onCompileError);
+        socket.on('compile:batch:error', onCompileError);
         socket.on('compile:batch:result', onResult);
-        socket.on('compile:batch:done',   onDone);
-        socket.on('compile:error',        onErr);
+        socket.on('compile:batch:done', onDone);
+        socket.on('compile:error', onErr);
 
         socket.emit('compile:batch', {
           code,
-          inputs:   snapshot.map(tc => tc.input),
+          inputs: snapshot.map(tc => tc.input),
           optimize,
           langId,
         });
       });
 
-    // ── HTTP fallback (WebSocket không kết nối được) ───────────────────────
+      // ── HTTP fallback (WebSocket không kết nối được) ───────────────────────
     } else {
       let passCount = 0, failCount = 0, errCount = 0;
       for (const tc of snapshot) {
@@ -543,14 +562,14 @@ export default function EditorLayout({
           }
           const hasExpected = tc.expectedOutput?.trim().length > 0;
           let status: TestCase['status'];
-          if      (result.timedOut)                                                  status = 'timeout';
-          else if (result.exitCode !== 0)                                            status = 'error';
-          else if (hasExpected && !compareOutput(result.stdout, tc.expectedOutput))  status = 'wrong';
-          else                                                                        status = 'ok';
+          if (result.timedOut) status = 'timeout';
+          else if (result.exitCode !== 0) status = 'error';
+          else if (hasExpected && !compareOutput(result.stdout, tc.expectedOutput)) status = 'wrong';
+          else status = 'ok';
 
-          if      (status === 'ok')    passCount++;
+          if (status === 'ok') passCount++;
           else if (status === 'wrong') failCount++;
-          else                         errCount++;
+          else errCount++;
 
           setTestCases(prev => prev.map(t => t.id === tc.id ? {
             ...t, status,
@@ -574,24 +593,24 @@ export default function EditorLayout({
     setIsRunningAll(false);
   }, [code, testCases, isRunningAll, isCompiling, runOnce, langId, optimize]);
 
-  // ─── Ctrl+Enter ───────────────────────────────────────────────────────────
+  // ─── Global Shortcuts ─────────────────────────────────────────────────────
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      if (matchesShortcut(e, shortcuts.run)) {
         e.preventDefault();
         if (activeTab === 'testcases') handleRunAll();
         else handleRun();
       }
       // '?' opens shortcuts modal (not in input/textarea)
       if (e.key === '?' && !e.ctrlKey && !e.metaKey &&
-          !(e.target instanceof HTMLInputElement) &&
-          !(e.target instanceof HTMLTextAreaElement)) {
+        !(e.target instanceof HTMLInputElement) &&
+        !(e.target instanceof HTMLTextAreaElement)) {
         setShortcutsOpen(v => !v);
       }
     };
     window.addEventListener('keydown', fn);
     return () => window.removeEventListener('keydown', fn);
-  }, [handleRun, handleRunAll, activeTab]);
+  }, [handleRun, handleRunAll, activeTab, shortcuts]);
 
   // ─── Desktop panel helpers ────────────────────────────────────────────────
   const visiblePanels = [panels.code, panels.input, panels.output].filter(Boolean).length;
@@ -642,6 +661,8 @@ export default function EditorLayout({
       <ShortcutsModal
         open={shortcutsOpen}
         onClose={() => setShortcutsOpen(false)}
+        shortcuts={shortcuts}
+        onChange={handleShortcutsChange}
       />
 
       {/* ── Shared view banner ──────────────────────────────────────────── */}
@@ -673,7 +694,7 @@ export default function EditorLayout({
               color: optimize ? '#fbbf24' : '#34d399',
             }}
           >
-            {optimize ? <Gauge size={16}/> : <Zap size={16}/>}
+            {optimize ? <Gauge size={16} /> : <Zap size={16} />}
           </button>
           {/* Settings */}
           <button
@@ -682,7 +703,7 @@ export default function EditorLayout({
             className="flex items-center justify-center rounded-md transition-colors"
             style={{ width: 36, height: 36, background: 'rgba(255,255,255,0.05)', color: '#6b7280' }}
           >
-            <Settings2 size={16}/>
+            <Settings2 size={16} />
           </button>
         </header>
       ) : (
@@ -699,15 +720,13 @@ export default function EditorLayout({
             <div className="flex items-center gap-1 bg-gray-800/50 rounded-lg p-0.5">
               <button
                 onClick={() => { setActiveTab('single'); savePrefs({ ...loadPrefs(), activeTab: 'single' }); }}
-                className={`px-3 py-1 text-[11px] rounded-md transition-colors font-medium ${
-                  activeTab === 'single' ? 'bg-gray-700 text-gray-100' : 'text-gray-500 hover:text-gray-300'
-                }`}
+                className={`px-3 py-1 text-[11px] rounded-md transition-colors font-medium ${activeTab === 'single' ? 'bg-gray-700 text-gray-100' : 'text-gray-500 hover:text-gray-300'
+                  }`}
               >{t.ui.singleRun}</button>
               <button
                 onClick={() => { setActiveTab('testcases'); savePrefs({ ...loadPrefs(), activeTab: 'testcases' }); }}
-                className={`px-3 py-1 text-[11px] rounded-md transition-colors font-medium flex items-center gap-1 ${
-                  activeTab === 'testcases' ? 'bg-gray-700 text-gray-100' : 'text-gray-500 hover:text-gray-300'
-                }`}
+                className={`px-3 py-1 text-[11px] rounded-md transition-colors font-medium flex items-center gap-1 ${activeTab === 'testcases' ? 'bg-gray-700 text-gray-100' : 'text-gray-500 hover:text-gray-300'
+                  }`}
               >
                 Test Cases
                 <span className="text-[9px] bg-gray-600 text-gray-300 px-1 rounded font-mono">{testCases.length}</span>
@@ -746,6 +765,7 @@ export default function EditorLayout({
                 language={lang.monacoLang}
                 diagnostics={diagnostics}
                 settings={settings}
+                shortcuts={shortcuts}
               />
             </div>
 
@@ -780,6 +800,9 @@ export default function EditorLayout({
                 isLoading={isCompiling && !streamStdout}
                 onClear={() => { setOutput(null); setDiagnostics([]); }}
                 showWarnings={settings.showWarnings}
+                isRunning={isCompiling}
+                onStdin={handleSendStdin}
+                onEndStdin={handleEndStdin}
               />
             </div>
           </div>
@@ -792,7 +815,7 @@ export default function EditorLayout({
             // Output badge
             const outBadge = output
               ? output.compileError || output.exitCode !== 0 ? { text: '!', color: '#f87171' }
-              : { text: '✓', color: '#4ade80' }
+                : { text: '✓', color: '#4ade80' }
               : null;
 
             // Tests badge: show pass/fail count after run
@@ -801,14 +824,14 @@ export default function EditorLayout({
             const failed = ran.filter(t => t.status === 'wrong' || t.status === 'error' || t.status === 'timeout').length;
             const testBadge = ran.length > 0
               ? failed > 0 ? { text: `${passed}/${testCases.length}`, color: '#f87171' }
-              : { text: `${passed}/${testCases.length}`, color: '#4ade80' }
+                : { text: `${passed}/${testCases.length}`, color: '#4ade80' }
               : { text: String(testCases.length), color: '#6b7280' };
 
             const TABS = [
-              { id: 'code',   Icon: Code2,          label: t.ui.tabs.code,   badge: null,       accentColor: '#4ade80' },
-              { id: 'input',  Icon: AlignLeft,       label: t.ui.tabs.input,  badge: singleInput.trim() ? { text: '·', color: '#facc15' } : null, accentColor: '#facc15' },
-              { id: 'tests',  Icon: ClipboardList,   label: t.ui.tabs.tests,  badge: testBadge,  accentColor: '#818cf8' },
-              { id: 'output', Icon: MonitorDot,      label: t.ui.tabs.output, badge: outBadge,   accentColor: '#f87171' },
+              { id: 'code', Icon: Code2, label: t.ui.tabs.code, badge: null, accentColor: '#4ade80' },
+              { id: 'input', Icon: AlignLeft, label: t.ui.tabs.input, badge: singleInput.trim() ? { text: '·', color: '#facc15' } : null, accentColor: '#facc15' },
+              { id: 'tests', Icon: ClipboardList, label: t.ui.tabs.tests, badge: testBadge, accentColor: '#818cf8' },
+              { id: 'output', Icon: MonitorDot, label: t.ui.tabs.output, badge: outBadge, accentColor: '#f87171' },
             ] as const;
 
             return (
@@ -838,7 +861,7 @@ export default function EditorLayout({
                           style={{ width: 24, height: 2, background: accentColor }}
                         />
                       )}
-                      <Icon size={18} strokeWidth={active ? 2.2 : 1.6}/>
+                      <Icon size={18} strokeWidth={active ? 2.2 : 1.6} />
                       <span className="text-[10px] font-medium leading-none">{label}</span>
                       {/* Badge */}
                       {badge && (
@@ -866,8 +889,8 @@ export default function EditorLayout({
                   }}
                 >
                   {isRunning
-                    ? <Loader2 size={20} className="animate-spin"/>
-                    : <Play size={20} fill="currentColor" strokeWidth={0}/>
+                    ? <Loader2 size={20} className="animate-spin" />
+                    : <Play size={20} fill="currentColor" strokeWidth={0} />
                   }
                   <span className="text-[10px] font-semibold leading-none">
                     {mobileTab === 'tests' ? t.ui.runAll : t.ui.run}
@@ -893,14 +916,14 @@ export default function EditorLayout({
                   className="p-1 rounded hover:bg-gray-700 text-gray-600 hover:text-indigo-400 transition-colors mr-0.5"
                   title={t.ui.templatesTitle}
                 >
-                  <LibrarySquare size={12}/>
+                  <LibrarySquare size={12} />
                 </button>
                 <button
                   onClick={() => setShortcutsOpen(true)}
                   className="p-1 rounded hover:bg-gray-700 text-gray-600 hover:text-gray-300 transition-colors mr-0.5"
                   title={t.ui.shortcutsTitle}
                 >
-                  <Keyboard size={12}/>
+                  <Keyboard size={12} />
                 </button>
                 <CopyButton text={code} label="code" />
               </PaneBar>
@@ -912,6 +935,7 @@ export default function EditorLayout({
                   language={lang.monacoLang}
                   diagnostics={diagnostics}
                   settings={settings}
+                  shortcuts={shortcuts}
                 />
               </div>
             </div>
@@ -958,6 +982,9 @@ export default function EditorLayout({
                 isLoading={isCompiling && !streamStdout}
                 onClear={() => { setOutput(null); setDiagnostics([]); }}
                 showWarnings={settings.showWarnings}
+                isRunning={isCompiling}
+                onStdin={handleSendStdin}
+                onEndStdin={handleEndStdin}
               />
             </div>
           )}

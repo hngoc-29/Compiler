@@ -7,52 +7,59 @@
 'use strict';
 
 const { createServer } = require('http');
-const { parse }        = require('url');
-const next             = require('next');
-const { Server }       = require('socket.io');
-const { spawn }        = require('child_process');
+const { parse } = require('url');
+const next = require('next');
+const { Server } = require('socket.io');
+const { spawn } = require('child_process');
 const { writeFile, unlink } = require('fs/promises');
-const { join }         = require('path');
-const { randomUUID }   = require('crypto');
-const os               = require('os');
+const { join } = require('path');
+const { randomUUID } = require('crypto');
+const os = require('os');
 
-const dev      = process.env.NODE_ENV !== 'production';
+const dev = process.env.NODE_ENV !== 'production';
 const hostname = process.env.HOSTNAME || '0.0.0.0';
-const port     = parseInt(process.env.PORT || '3000', 10);
+const port = parseInt(process.env.PORT || '3000', 10);
 
-const app    = next({ dev, hostname, port });
+const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;  // 2 MB
-const COMPILE_TIMEOUT  = 30_000;            // 30 s
-const RUN_TIMEOUT      = 10_000;            // 10 s
+const COMPILE_TIMEOUT = 30_000;            // 30 s
+const RUN_TIMEOUT = 10_000;            // 10 s
 
 // ─── Language map (mirrors lib/languages.ts) ──────────────────────────────────
 const LANG_MAP = {
-  cpp20:   { ext: 'cpp', compiler: 'g++',     stdFlag: '-std=c++20', extraLibs: [] },
-  cpp17:   { ext: 'cpp', compiler: 'g++',     stdFlag: '-std=c++17', extraLibs: [] },
-  cpp14:   { ext: 'cpp', compiler: 'g++',     stdFlag: '-std=c++14', extraLibs: [] },
-  cpp11:   { ext: 'cpp', compiler: 'g++',     stdFlag: '-std=c++11', extraLibs: [] },
-  c11:     { ext: 'c',   compiler: 'gcc',     stdFlag: '-std=c11',   extraLibs: ['-lm'] },
-  python3: { ext: 'py',  compiler: 'python3', stdFlag: null,         extraLibs: [] },
+  cpp20: { ext: 'cpp', compiler: 'g++', stdFlag: '-std=c++20', extraLibs: [] },
+  cpp17: { ext: 'cpp', compiler: 'g++', stdFlag: '-std=c++17', extraLibs: [] },
+  cpp14: { ext: 'cpp', compiler: 'g++', stdFlag: '-std=c++14', extraLibs: [] },
+  cpp11: { ext: 'cpp', compiler: 'g++', stdFlag: '-std=c++11', extraLibs: [] },
+  c11: { ext: 'c', compiler: 'gcc', stdFlag: '-std=c11', extraLibs: ['-lm'] },
+  python3: { ext: 'py', compiler: 'python3', stdFlag: null, extraLibs: [] },
 };
 
 // ─── Process runner (with optional streaming callbacks) ───────────────────────
-function runProcess(cmd, args, stdinData, timeoutMs, onStdout, onStderr) {
+// Returns a Promise<result> AND exposes proc via callbacks.onProcess for interactive stdin.
+function runProcess(cmd, args, stdinData, timeoutMs, onStdout, onStderr, onProcess, interactive = false) {
   return new Promise((resolve) => {
     const proc = spawn(cmd, args, { shell: false });
     let stdout = '', stderr = '', timedOut = false, settled = false;
 
+    // Expose the process handle so callers can pipe interactive stdin
+    onProcess?.(proc);
+
     const timer = setTimeout(() => {
       timedOut = true;
+      try { proc.stdin.end(); } catch { }
       proc.kill('SIGTERM');
-      setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 1000);
+      setTimeout(() => { try { proc.kill('SIGKILL'); } catch { } }, 1000);
     }, timeoutMs);
 
     if (stdinData) {
-      proc.stdin.write(stdinData, 'utf-8', () => proc.stdin.end());
-    } else {
+      proc.stdin.write(stdinData, 'utf-8');
+    }
+    // If interactive is false, end stdin immediately so the process doesn't hang waiting for input.
+    if (!interactive) {
       proc.stdin.end();
     }
 
@@ -84,10 +91,10 @@ function runProcess(cmd, args, stdinData, timeoutMs, onStdout, onStderr) {
 }
 
 // ─── Compile + run with streaming ─────────────────────────────────────────────
-async function compileAndRunStream(code, input, timeoutMs, optimize, langId, callbacks) {
-  const lang    = LANG_MAP[langId] ?? LANG_MAP['cpp20'];
-  const id      = randomUUID();
-  const tmpDir  = os.tmpdir();
+async function compileAndRunStream(code, input, timeoutMs, optimize, langId, callbacks, interactive = false) {
+  const lang = LANG_MAP[langId] ?? LANG_MAP['cpp20'];
+  const id = randomUUID();
+  const tmpDir = os.tmpdir();
   const srcFile = join(tmpDir, `cppeditor_${id}.${lang.ext}`);
   const binFile = join(tmpDir, `cppeditor_${id}.out`);
 
@@ -97,27 +104,27 @@ async function compileAndRunStream(code, input, timeoutMs, optimize, langId, cal
     // ── Python: no compile step ───────────────────────────────────────────
     if (lang.compiler === 'python3') {
       callbacks.onStatus?.('running');
-      const t0     = Date.now();
+      const t0 = Date.now();
       const runRes = await runProcess(
         'python3', [srcFile], input, timeoutMs,
         callbacks.onStdout,
         callbacks.onStderr,
-      );
+        callbacks.onProcess, interactive);
       const runtime = Date.now() - t0;
       const isRuntimeError = runRes.exitCode !== 0 && !runRes.timedOut;
       callbacks.onDone?.({
-        stdout:       runRes.stdout,
-        stderr:       isRuntimeError ? '' : runRes.stderr,
+        stdout: runRes.stdout,
+        stderr: isRuntimeError ? '' : runRes.stderr,
         compileError: isRuntimeError ? (runRes.stderr || 'Runtime error') : null,
-        exitCode:     runRes.exitCode,
+        exitCode: runRes.exitCode,
         runtime,
-        timedOut:     runRes.timedOut,
+        timedOut: runRes.timedOut,
       });
       return;
     }
 
     // ── C / C++: compile then run ─────────────────────────────────────────
-    const optFlag  = optimize ? '-O2' : '-O0';
+    const optFlag = optimize ? '-O2' : '-O0';
     const compArgs = [
       lang.stdFlag, optFlag, '-pipe',
       '-Wall', '-Wextra',
@@ -139,26 +146,26 @@ async function compileAndRunStream(code, input, timeoutMs, optimize, langId, cal
     }
 
     callbacks.onStatus?.('running');
-    const t0     = Date.now();
+    const t0 = Date.now();
     const runRes = await runProcess(
       binFile, [], input, timeoutMs,
       callbacks.onStdout,
       callbacks.onStderr,
-    );
+      callbacks.onProcess, interactive);
     const runtime = Date.now() - t0;
 
     callbacks.onDone?.({
-      stdout:       runRes.stdout,
-      stderr:       runRes.stderr,
+      stdout: runRes.stdout,
+      stderr: runRes.stderr,
       compileError: null,
-      exitCode:     runRes.exitCode,
+      exitCode: runRes.exitCode,
       runtime,
-      timedOut:     runRes.timedOut,
+      timedOut: runRes.timedOut,
     });
   } finally {
     await Promise.allSettled([
-      unlink(srcFile).catch(() => {}),
-      unlink(binFile).catch(() => {}),
+      unlink(srcFile).catch(() => { }),
+      unlink(binFile).catch(() => { }),
     ]);
   }
 }
@@ -181,6 +188,24 @@ app.prepare().then(() => {
 
   io.on('connection', (socket) => {
     let isCompiling = false;
+    // Reference to the currently running child process (for interactive stdin)
+    let activeProc = null;
+
+    // ── Interactive stdin: client sends data to the running process ──────────
+    socket.on('compile:stdin', (data) => {
+      if (activeProc && activeProc.stdin && !activeProc.stdin.destroyed) {
+        try {
+          activeProc.stdin.write(typeof data === 'string' ? data : String(data), 'utf-8');
+        } catch { /* process may have exited */ }
+      }
+    });
+
+    // ── End stdin: client signals no more input ─────────────────────────────
+    socket.on('compile:stdin:end', () => {
+      if (activeProc && activeProc.stdin && !activeProc.stdin.destroyed) {
+        try { activeProc.stdin.end(); } catch { }
+      }
+    });
 
     socket.on('compile', async (data) => {
       if (isCompiling) {
@@ -188,7 +213,7 @@ app.prepare().then(() => {
         return;
       }
 
-      const { code, input = '', optimize = false, langId = 'cpp20' } = data ?? {};
+      const { code, input = '', optimize = false, langId = 'cpp20', interactive = false } = data ?? {};
 
       if (typeof code !== 'string' || !code.trim()) {
         socket.emit('compile:error', { message: 'Code không hợp lệ' });
@@ -201,25 +226,35 @@ app.prepare().then(() => {
       }
 
       isCompiling = true;
+      activeProc = null;
 
       try {
+        const timeoutMs = typeof data.timeoutMs === 'number' && data.timeoutMs > 0
+          ? Math.min(data.timeoutMs, 60000) : RUN_TIMEOUT;
+
         await compileAndRunStream(
           code,
-          typeof input === 'string' ? input : '',
-          RUN_TIMEOUT,
+          // In interactive mode, don't pre-fill stdin — user will send it live
+          interactive ? '' : (typeof input === 'string' ? input : ''),
+          timeoutMs,
           optimize === true,
           typeof langId === 'string' && langId in LANG_MAP ? langId : 'cpp20',
           {
-            onStatus:  (s)     => socket.emit('compile:status',  s),
-            onStdout:  (chunk) => socket.emit('compile:stdout',  chunk),
-            onStderr:  (chunk) => socket.emit('compile:stderr',  chunk),
-            onDone:    (result)=> socket.emit('compile:done',    result),
-          },
-        );
+            onStatus: (s) => socket.emit('compile:status', s),
+            onStdout: (chunk) => socket.emit('compile:stdout', chunk),
+            onStderr: (chunk) => socket.emit('compile:stderr', chunk),
+            onDone: (result) => {
+              activeProc = null;
+              socket.emit('compile:done', result);
+            },
+            onProcess: (proc) => { activeProc = proc; },
+          }, interactive);
       } catch (err) {
+        activeProc = null;
         socket.emit('compile:error', { message: String(err) });
       } finally {
         isCompiling = false;
+        activeProc = null;
       }
     });
 
@@ -254,9 +289,9 @@ app.prepare().then(() => {
       isCompiling = true;
 
       const resolvedLangId = typeof langId === 'string' && langId in LANG_MAP ? langId : 'cpp20';
-      const lang    = LANG_MAP[resolvedLangId];
-      const id      = randomUUID();
-      const tmpDir  = os.tmpdir();
+      const lang = LANG_MAP[resolvedLangId];
+      const id = randomUUID();
+      const tmpDir = os.tmpdir();
       const srcFile = join(tmpDir, `cppeditor_${id}.${lang.ext}`);
       const binFile = join(tmpDir, `cppeditor_${id}.out`);
 
@@ -269,15 +304,15 @@ app.prepare().then(() => {
 
           for (let i = 0; i < inputs.length; i++) {
             const input = typeof inputs[i] === 'string' ? inputs[i] : '';
-            const t0    = Date.now();
-            const res   = await runProcess('python3', [srcFile], input, RUN_TIMEOUT);
+            const t0 = Date.now();
+            const res = await runProcess('python3', [srcFile], input, RUN_TIMEOUT);
             const isRuntimeError = res.exitCode !== 0 && !res.timedOut;
             socket.emit('compile:batch:result', {
-              index:    i,
-              stdout:   res.stdout,
-              stderr:   isRuntimeError ? '' : res.stderr,
+              index: i,
+              stdout: res.stdout,
+              stderr: isRuntimeError ? '' : res.stderr,
               exitCode: res.exitCode,
-              runtime:  Date.now() - t0,
+              runtime: Date.now() - t0,
               timedOut: res.timedOut,
             });
           }
@@ -287,7 +322,7 @@ app.prepare().then(() => {
         }
 
         // ── C / C++: compile 1 lần ───────────────────────────────────────────
-        const optFlag  = optimize ? '-O2' : '-O0';
+        const optFlag = optimize ? '-O2' : '-O0';
         const compArgs = [
           lang.stdFlag, optFlag, '-pipe', '-Wall', '-Wextra',
           ...lang.extraLibs,
@@ -299,7 +334,7 @@ app.prepare().then(() => {
 
         if (compileRes.exitCode !== 0) {
           socket.emit('compile:batch:error', {
-            stderr:   compileRes.stderr || 'Compilation failed',
+            stderr: compileRes.stderr || 'Compilation failed',
             exitCode: compileRes.exitCode,
           });
           return;
@@ -310,14 +345,14 @@ app.prepare().then(() => {
 
         for (let i = 0; i < inputs.length; i++) {
           const input = typeof inputs[i] === 'string' ? inputs[i] : '';
-          const t0    = Date.now();
-          const res   = await runProcess(binFile, [], input, RUN_TIMEOUT);
+          const t0 = Date.now();
+          const res = await runProcess(binFile, [], input, RUN_TIMEOUT);
           socket.emit('compile:batch:result', {
-            index:    i,
-            stdout:   res.stdout,
-            stderr:   res.stderr,
+            index: i,
+            stdout: res.stdout,
+            stderr: res.stderr,
             exitCode: res.exitCode,
-            runtime:  Date.now() - t0,
+            runtime: Date.now() - t0,
             timedOut: res.timedOut,
           });
         }
@@ -329,8 +364,8 @@ app.prepare().then(() => {
       } finally {
         isCompiling = false;
         await Promise.allSettled([
-          unlink(srcFile).catch(() => {}),
-          unlink(binFile).catch(() => {}),
+          unlink(srcFile).catch(() => { }),
+          unlink(binFile).catch(() => { }),
         ]);
       }
     });
