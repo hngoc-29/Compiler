@@ -287,6 +287,7 @@ export const vi: Translations = {
       fontLigatures: { label: 'Font Ligatures', desc: 'Bật ligatures (→, ≥, !=, v.v. với JetBrains Mono)' },
       smoothCaret: { label: 'Con trỏ mượt', desc: 'Thêm hiệu ứng chuyển động cho con trỏ' },
       useWasm: { label: 'Chạy trên trình duyệt (WASM)', desc: 'Thực thi code trực tiếp trên máy của bạn (không tốn server, hỗ trợ offline)' },
+      realtimeLogs: { label: 'Log thời gian thực', desc: 'Ép chương trình xả log ngay lập tức (không chờ buffer đầy) — tắt để dùng chế độ cũ, gộp log rồi trả một lần' },
     },
     fontSize: 'Cỡ chữ',
     tabSize: 'Tab Size',

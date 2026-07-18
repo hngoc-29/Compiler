@@ -214,6 +214,7 @@ export default function SettingsPanel({ open, onClose, settings, onChange }: Set
           {/* Execution */}
           <SectionHeader icon={<Timer size={12} />} label={sec.execution} />
           <ToggleRow label={tog.useWasm.label} description={tog.useWasm.desc} checked={settings.useWasm} onChange={v => set('useWasm', v)} />
+          <ToggleRow label={tog.realtimeLogs.label} description={tog.realtimeLogs.desc} checked={settings.realtimeLogs} onChange={v => set('realtimeLogs', v)} />
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <div>

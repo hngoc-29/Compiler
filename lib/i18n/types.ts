@@ -125,6 +125,7 @@ export interface Translations {
       fontLigatures: { label: string; desc: string };
       smoothCaret: { label: string; desc: string };
       useWasm: { label: string; desc: string };
+      realtimeLogs: { label: string; desc: string };
     };
     fontSize: string;
     tabSize: string;

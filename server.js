@@ -27,6 +27,37 @@ const handle = app.getRequestHandler();
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;  // 2 MB
 const COMPILE_TIMEOUT = 30_000;            // 30 s
 const RUN_TIMEOUT = 10_000;            // 10 s
+const REALTIME_FLUSH_MS = 80;          // how often "realtime mode" bursts stdout to the client
+
+// ─── Throttled emitter ──────────────────────────────────────────────────────
+// A tight, no-newline output loop (e.g. `for(...) cout << i;`) can hand us
+// tens of thousands of `data` events per second once the OS-level buffering
+// is disabled (see the stdbuf/-u usage below). Emitting a socket message for
+// every single one of those would flood both the socket and the browser's
+// render loop — paradoxically making the UI feel MORE frozen, not more
+// real-time. This coalesces everything received within a short window into
+// one burst, which still reads as "streaming live" to a human (~12
+// updates/sec) without the flood. flushNow() drains whatever's pending
+// immediately — used right before a run reports done, so the very last bit
+// of output isn't stuck waiting out the interval.
+function makeThrottledEmitter(emit, intervalMs = REALTIME_FLUSH_MS) {
+  let buf = '';
+  let timer = null;
+  const flush = () => {
+    timer = null;
+    if (buf) { const b = buf; buf = ''; emit(b); }
+  };
+  return {
+    push(chunk) {
+      buf += chunk;
+      if (!timer) timer = setTimeout(flush, intervalMs);
+    },
+    flushNow() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      if (buf) { const b = buf; buf = ''; emit(b); }
+    },
+  };
+}
 
 // ─── Language map (mirrors lib/languages.ts) ──────────────────────────────────
 const LANG_MAP = {
@@ -63,11 +94,23 @@ function runProcess(cmd, args, stdinData, timeoutMs, onStdout, onStderr, onProce
       proc.stdin.end();
     }
 
+    // BUG FOUND VIA TESTING: once accumulated output crosses MAX_OUTPUT_BYTES,
+    // this used to just silently stop calling onStdout/onStderr — a long/
+    // infinite loop (exactly the "watch it run in real time" use case) hits
+    // this within well under a second once output is unbuffered, and the
+    // stream would just go quiet with zero indication why. Emit one visible
+    // notice at the moment the cap is hit so the person knows logging didn't
+    // freeze — it's an intentional cutoff.
+    let stdoutCapped = false, stderrCapped = false;
     proc.stdout.on('data', (chunk) => {
       const text = chunk.toString('utf-8');
       if (stdout.length < MAX_OUTPUT_BYTES) {
         stdout += text;
         onStdout?.(text);
+        if (stdout.length >= MAX_OUTPUT_BYTES && !stdoutCapped) {
+          stdoutCapped = true;
+          onStdout?.('\n⚠️ [output truncated — đã vượt quá 2MB, log tiếp theo sẽ không hiển thị]\n');
+        }
       }
     });
     proc.stderr.on('data', (chunk) => {
@@ -75,6 +118,10 @@ function runProcess(cmd, args, stdinData, timeoutMs, onStdout, onStderr, onProce
       if (stderr.length < MAX_OUTPUT_BYTES) {
         stderr += text;
         onStderr?.(text);
+        if (stderr.length >= MAX_OUTPUT_BYTES && !stderrCapped) {
+          stderrCapped = true;
+          onStderr?.('\n⚠️ [stderr truncated — đã vượt quá 2MB]\n');
+        }
       }
     });
 
@@ -91,7 +138,16 @@ function runProcess(cmd, args, stdinData, timeoutMs, onStdout, onStderr, onProce
 }
 
 // ─── Compile + run with streaming ─────────────────────────────────────────────
-async function compileAndRunStream(code, input, timeoutMs, optimize, langId, callbacks, interactive = false) {
+// `realtime` (default true = the new default mode): forces the running
+// program's stdout/stderr to be OS-level unbuffered, via `stdbuf -o0 -e0` for
+// native C/C++ binaries and `python3 -u` for Python. Without this, glibc/
+// CPython fully-buffer stdout whenever it isn't a real terminal (which a
+// spawned pipe never is) — a tight loop with no newline (e.g. `cout << i;`)
+// would sit in a several-KB buffer and only surface once it filled or the
+// process exited/got killed, which is exactly why output looked like it
+// arrived "as one lump at the end" instead of live. Passing `realtime: false`
+// keeps the old, unwrapped behavior available.
+async function compileAndRunStream(code, input, timeoutMs, optimize, langId, callbacks, interactive = false, realtime = true) {
   const lang = LANG_MAP[langId] ?? LANG_MAP['cpp20'];
   const id = randomUUID();
   const tmpDir = os.tmpdir();
@@ -105,8 +161,9 @@ async function compileAndRunStream(code, input, timeoutMs, optimize, langId, cal
     if (lang.compiler === 'python3') {
       callbacks.onStatus?.('running');
       const t0 = Date.now();
+      const pyArgs = realtime ? ['-u', srcFile] : [srcFile];
       const runRes = await runProcess(
-        'python3', [srcFile], input, timeoutMs,
+        'python3', pyArgs, input, timeoutMs,
         callbacks.onStdout,
         callbacks.onStderr,
         callbacks.onProcess, interactive);
@@ -147,8 +204,14 @@ async function compileAndRunStream(code, input, timeoutMs, optimize, langId, cal
 
     callbacks.onStatus?.('running');
     const t0 = Date.now();
+    // stdbuf reconfigures the child's C stdio buffering mode before it even
+    // starts — '-o0'/'-e0' means fully unbuffered, so every write() the
+    // program makes (even a single `cout << i` with no newline) reaches our
+    // pipe immediately instead of sitting in a several-KB libc buffer.
+    const runCmd = realtime ? 'stdbuf' : binFile;
+    const runArgs = realtime ? ['-o0', '-e0', binFile] : [];
     const runRes = await runProcess(
-      binFile, [], input, timeoutMs,
+      runCmd, runArgs, input, timeoutMs,
       callbacks.onStdout,
       callbacks.onStderr,
       callbacks.onProcess, interactive);
@@ -213,7 +276,7 @@ app.prepare().then(() => {
         return;
       }
 
-      const { code, input = '', optimize = false, langId = 'cpp20', interactive = false } = data ?? {};
+      const { code, input = '', optimize = false, langId = 'cpp20', interactive = false, realtime = true } = data ?? {};
 
       if (typeof code !== 'string' || !code.trim()) {
         socket.emit('compile:error', { message: 'Code không hợp lệ' });
@@ -227,6 +290,17 @@ app.prepare().then(() => {
 
       isCompiling = true;
       activeProc = null;
+
+      // In realtime mode, coalesce rapid stdout/stderr into small throttled
+      // bursts (see makeThrottledEmitter) instead of one socket message per
+      // OS-level write — otherwise a tight unbuffered loop can emit tens of
+      // thousands of messages/sec and paradoxically make the UI feel frozen.
+      const stdoutEmitter = realtime === true
+        ? makeThrottledEmitter((chunk) => socket.emit('compile:stdout', chunk))
+        : { push: (chunk) => socket.emit('compile:stdout', chunk), flushNow: () => {} };
+      const stderrEmitter = realtime === true
+        ? makeThrottledEmitter((chunk) => socket.emit('compile:stderr', chunk))
+        : { push: (chunk) => socket.emit('compile:stderr', chunk), flushNow: () => {} };
 
       try {
         // BUG FIX: this cap used to be a flat 60s regardless of `interactive`,
@@ -248,14 +322,19 @@ app.prepare().then(() => {
           typeof langId === 'string' && langId in LANG_MAP ? langId : 'cpp20',
           {
             onStatus: (s) => socket.emit('compile:status', s),
-            onStdout: (chunk) => socket.emit('compile:stdout', chunk),
-            onStderr: (chunk) => socket.emit('compile:stderr', chunk),
+            onStdout: (chunk) => stdoutEmitter.push(chunk),
+            onStderr: (chunk) => stderrEmitter.push(chunk),
             onDone: (result) => {
+              // Flush any output still sitting in the throttle buffer BEFORE
+              // telling the client the run is done, so nothing gets dropped
+              // or arrives out of order after the "done" signal.
+              stdoutEmitter.flushNow();
+              stderrEmitter.flushNow();
               activeProc = null;
               socket.emit('compile:done', result);
             },
             onProcess: (proc) => { activeProc = proc; },
-          }, interactive);
+          }, interactive, realtime === true);
       } catch (err) {
         activeProc = null;
         socket.emit('compile:error', { message: String(err) });

@@ -331,9 +331,20 @@ export default function EditorLayout({
         let wasmCode = codeToRun;
         const isPython = langId === 'python3';
 
+        // ── Verification logging ────────────────────────────────────────────
+        // Answers "làm sao biết nó có thực sự chạy bằng máy tôi không?" by
+        // printing concrete, timestamped proof directly into the output
+        // stream (not just DevTools) — every timing here is measured on THIS
+        // machine (performance.now() in the tab), and for the C++ path the
+        // absence of any further network request after compilation is the
+        // proof the run itself never left the browser.
+        const engineLog = (line: string) => onStdoutChunk?.(`⚙️ [Engine] ${line}\n`);
+
         if (!isPython) {
           // Compile C++ to WASM via API
           try {
+            engineLog('Đang biên dịch C++ → WASM trên server (bắt buộc — trình duyệt không có trình biên dịch C++)...');
+            const tCompile0 = performance.now();
             const res = await fetch('/api/compile-wasm', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -345,13 +356,18 @@ export default function EditorLayout({
               return resolve({ stdout: '', stderr: '', compileError: data.compileError, exitCode: 1, runtime: 0, timedOut: false });
             }
             wasmCode = data.jsCode;
+            const compileMs = Math.round(performance.now() - tCompile0);
+            engineLog(`Biên dịch xong (${compileMs}ms, gồm cả round-trip mạng). Từ đây trở đi chạy 100% trên trình duyệt của bạn — mở DevTools → Network lúc chạy, sẽ không có request nào nữa.`);
           } catch (err) {
             return reject(err);
           }
+        } else {
+          engineLog('Chạy Python 100% trong Worker thread của trình duyệt — code không được gửi lên server để chạy.');
         }
 
         let stdoutBuf = '';
         let stderrBuf = '';
+        const tRun0 = performance.now();
 
         const onMessage = (e: MessageEvent) => {
           const { type, chunk, result, status, compileError } = e.data;
@@ -361,9 +377,12 @@ export default function EditorLayout({
           } else if (type === 'stderr') {
             stderrBuf += chunk;
           } else if (type === 'status') {
+            if (status === 'loading-pyodide') engineLog('Đang tải Pyodide runtime từ CDN (chỉ lần đầu, sau đó cache lại)...');
             onStatus?.(status);
           } else if (type === 'done') {
             worker.removeEventListener('message', onMessage);
+            const clientMs = Math.round(performance.now() - tRun0);
+            engineLog(`Chạy xong — ${result.runtime}ms đo trong Worker, ${clientMs}ms đo tại tab chính. Cả hai số này đều đo tại máy bạn, không có request mạng nào trong lúc chạy.`);
             resolve({
               stdout: stdoutBuf,
               stderr: stderrBuf,
@@ -404,6 +423,7 @@ export default function EditorLayout({
       const socket = socketRef.current;
 
       if (socket?.connected) {
+        onStdoutChunk?.('⚙️ [Engine] Biên dịch & chạy trên server (không dùng tài nguyên máy bạn). Bật "Chạy trên trình duyệt (WASM)" trong Cài đặt để so sánh.\n');
         const onStdout = (chunk: string) => onStdoutChunk?.(chunk);
         const onStatusEvt = (s: string) => onStatus?.(s);
         const onDone = (result: CompileResult) => { off(); resolve(result); };
@@ -421,7 +441,7 @@ export default function EditorLayout({
         socket.on('compile:status', onStatusEvt);
         socket.on('compile:done', onDone);
         socket.on('compile:error', onErr);
-        socket.emit('compile', { code: codeToRun, input: inputToRun, optimize, langId, timeoutMs: effectiveTimeoutMs, interactive });
+        socket.emit('compile', { code: codeToRun, input: inputToRun, optimize, langId, timeoutMs: effectiveTimeoutMs, interactive, realtime: settings.realtimeLogs });
       } else {
         // HTTP fallback
         fetch('/api/compile', {
@@ -437,7 +457,7 @@ export default function EditorLayout({
           .catch(reject);
       }
     });
-  }, [optimize, langId, settings.runTimeoutMs]);
+  }, [optimize, langId, settings.runTimeoutMs, settings.realtimeLogs]);
 
   const handleSendStdin = useCallback((data: string) => {
     if (settings.useWasm && wasmWorkerRef.current) {

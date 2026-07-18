@@ -6,7 +6,7 @@
  * Warnings từ compiler được hiển thị màu vàng, tách biệt với errors màu đỏ.
  */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import {
   Copy, Trash2, Terminal, AlertCircle, Info,
   Loader2, CheckCircle, XCircle, Clock, AlertTriangle, History, RotateCcw,
@@ -81,6 +81,26 @@ function parseCompilerOutput(raw: string): ParsedDiagnostics {
   flush();
 
   return { warnings, errors };
+}
+
+// Lines prefixed this way come from EditorLayout's own execution-engine
+// verification logging (proving whether a run happened client-side/WASM or
+// server-side — see runOnce), not from the program itself. Rendered visually
+// distinct (dim, italic, blue) and interleaved in place, so it's obvious at a
+// glance which lines are "meta" info and which are the program's real stdout.
+const ENGINE_LOG_PREFIX = '⚙️ [Engine]';
+function renderStdout(stdout: string) {
+  const lines = stdout.split('\n');
+  const nodes: ReactNode[] = [];
+  lines.forEach((line, i) => {
+    if (line.startsWith(ENGINE_LOG_PREFIX)) {
+      nodes.push(<span key={i} className="text-sky-400/80 italic">{line}</span>);
+    } else {
+      nodes.push(line);
+    }
+    if (i < lines.length - 1) nodes.push('\n');
+  });
+  return nodes;
 }
 
 export default function OutputPanel({ result, isLoading, onClear, showWarnings, isRunning, onStdin, onEndStdin }: OutputPanelProps) {
@@ -226,7 +246,7 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings, 
         {(!isLoading && (result || isRunning) && tab === 'output') && (
           <div className="flex flex-col h-full">
             <pre className="output-pre text-emerald-300 flex-1 overflow-auto">
-              {result?.stdout || <span className="text-gray-700 italic">(no stdout)</span>}
+              {result?.stdout ? renderStdout(result.stdout) : <span className="text-gray-700 italic">(no stdout)</span>}
               {result?.timedOut && (
                 <span className="block mt-2 text-yellow-400">{ot.timeout}</span>
               )}

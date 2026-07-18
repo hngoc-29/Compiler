@@ -155,7 +155,7 @@ export const ja: Translations = {
       renderWhitespace: { label: '空白の表示', desc: '選択範囲のスペースをドットで表示' },
       showWarnings: { label: '警告を表示', desc: 'コンパイル警告をErrorsタブに表示' },
       fontLigatures: { label: 'フォントリガチャ', desc: 'リガチャを有効化 (→, ≥, != など)' },
-      smoothCaret: { label: 'スムーズカーソル', desc: 'カーソル移動にアニメーションを追加' }, useWasm: { label: 'ブラウザで実行 (WASM)', desc: 'コードをローカルで実行（サーバー負荷ゼロ、オフライン対応）' },
+      smoothCaret: { label: 'スムーズカーソル', desc: 'カーソル移動にアニメーションを追加' }, useWasm: { label: 'ブラウザで実行 (WASM)', desc: 'コードをローカルで実行（サーバー負荷ゼロ、オフライン対応）' }, realtimeLogs: { label: 'リアルタイムログ', desc: '出力をバッファせず即座に送信（オフで従来通り、終了時に一括送信）' },
     },
     fontSize: 'フォントサイズ',
     tabSize: 'タブサイズ',

@@ -30,6 +30,12 @@ export interface EditorSettings {
   // Execution
   runTimeoutMs: number;   // 5000 | 10000 | 15000 | 30000
   useWasm: boolean;       // Run code in browser using WASM
+  // NEW: forces the running program's stdout/stderr to be unbuffered at the
+  // OS level (stdbuf -o0 -e0 / python3 -u) and streams it to the UI in small
+  // throttled bursts as it's produced, instead of whatever big, uneven
+  // chunks the OS pipe's own buffering happens to deliver. Default true —
+  // old behavior stays available by turning this off.
+  realtimeLogs: boolean;
 }
 
 export const DEFAULT_SETTINGS: EditorSettings = {
@@ -54,6 +60,7 @@ export const DEFAULT_SETTINGS: EditorSettings = {
 
   runTimeoutMs: 10_000,
   useWasm: false,
+  realtimeLogs: true,
 };
 
 const KEY = 'cpp-editor-settings-v1';

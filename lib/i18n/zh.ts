@@ -286,6 +286,7 @@ export const zh: Translations = {
       fontLigatures: { label: '字体连字', desc: '启用连字(→、≥、!= 等，需 JetBrains Mono)' },
       smoothCaret: { label: '平滑光标动画', desc: '为光标移动添加动画效果' },
       useWasm: { label: '在浏览器中运行 (WASM)', desc: '在本地执行代码（零服务器成本，支持离线）' },
+      realtimeLogs: { label: '实时日志', desc: '强制程序立即输出，不进行缓冲（关闭则使用旧模式，运行结束后一次性返回）' },
     },
     fontSize: '字体大小',
     tabSize: '缩进大小',
