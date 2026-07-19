@@ -1,98 +1,113 @@
 name: Secure Clean Patch Apply
+
 on:
   push:
     paths:
-      - '*.patch'
+      - "*.patch"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: patch-apply-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   apply-and-log:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2 # Lấy 2 commit để có thể kiểm tra và di chuyển lịch sử
+          fetch-depth: 0
 
-      - name: Validate, Apply and Safe Squash
+      - name: Configure Git
         run: |
-          # 1. Cấu hình Git
-          git config --global user.name "hngoc-29"
-          git config --global user.email "lmtcv1.9@gmail.com"
+          git config user.name "hngoc-29"
+          git config user.email "lmtcv1.9@gmail.com"
 
-          # 2. KIỂM TRA: Commit hiện tại có phải CHỈ chứa file .patch hay không?
-          # Lấy danh sách các file thay đổi trong commit vừa push lên
-          CHANGED_FILES=$(git diff-tree --no-commit-id --name-only -r HEAD)
-          
-          # Đếm xem có file nào KHÔNG PHẢI là .patch không
-          NON_PATCH_COUNT=$(echo "$CHANGED_FILES" | grep -v '\.patch$' | grep -c '^' || true)
-          
-          if [ "$NON_PATCH_COUNT" -ne 0 ]; then
-            echo "CẢNH BÁO: Commit này chứa cả các file khác không phải patch. Bot sẽ dừng để đảm bảo an toàn."
-            exit 1
+      - name: Validate and apply patches
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ZERO_SHA="0000000000000000000000000000000000000000"
+          BEFORE_SHA="${{ github.event.before }}"
+          CURRENT_SHA="${{ github.sha }}"
+
+          echo "Checking changed files in this push..."
+
+          if [ "$BEFORE_SHA" = "$ZERO_SHA" ]; then
+            CHANGED_FILES="$(git diff-tree --no-commit-id --name-only -r "$CURRENT_SHA" || true)"
+          else
+            CHANGED_FILES="$(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA" || true)"
           fi
 
-          # 3. Tìm file patch để xử lý
-          PATCH_FILES=$(find . -maxdepth 1 -name "*.patch")
-          if [ -z "$PATCH_FILES" ]; then
-            echo "Không tìm thấy file .patch nào ở thư mục gốc."
+          if [ -z "${CHANGED_FILES:-}" ]; then
+            echo "No changed files detected."
             exit 0
           fi
 
-          for patch in $PATCH_FILES; do
-            filename=$(basename "$patch")
-            echo "Đang xử lý file hợp lệ: $filename"
-            
-            # Trích xuất thông tin trước khi thay đổi cấu trúc Git
-            base_commit=$(grep -m 1 "^From " "$patch" | awk '{print $2}' || echo "N/A")
-            if [ "$base_commit" = "From" ] || [ -z "$base_commit" ]; then
-              base_commit="Không xác định (Patch thủ công)"
-            fi
-            affected_files=$(git apply --numstat "$patch" | awk '{print $3}' | tr '\n' ',' | sed 's/,$//')
+          NON_PATCH_FILES="$(printf '%s\n' "$CHANGED_FILES" | grep -vE '\.patch$' || true)"
+          if [ -n "${NON_PATCH_FILES:-}" ]; then
+            echo "ERROR: This push contains files that are not .patch files:"
+            printf '%s\n' "$NON_PATCH_FILES"
+            exit 1
+          fi
 
-            # 4. Chạy thử nghiệm xem patch có bị xung đột (conflict) không trước khi apply thật
+          mapfile -d '' PATCHES < <(find . -maxdepth 1 -type f -name "*.patch" -print0 | sort -z)
+
+          if [ "${#PATCHES[@]}" -eq 0 ]; then
+            echo "No .patch files found in the repository root."
+            exit 0
+          fi
+
+          echo "Found ${#PATCHES[@]} patch file(s). Validating first..."
+
+          for patch in "${PATCHES[@]}"; do
             if ! git apply --check "$patch"; then
-              echo "LỖI: File patch bị xung đột hoặc không thể apply vào code hiện tại. Hủy quy trình."
+              echo "ERROR: Patch cannot be applied cleanly: $patch"
               exit 1
             fi
-
-            # 5. Tiến hành apply patch thật sự vào code
-            git apply "$patch"
-
-            # 6. HỦY BỎ commit chứa file patch thô một cách an toàn (đưa trạng thái về trước khi push patch)
-            git reset --soft HEAD~1
-
-            # 7. Xóa triệt để file patch gốc khỏi Git và hệ thống ổ đĩa của runner
-            rm -f "$patch"
-            git rm "$patch" --cached 2>/dev/null || true
-
-            # 8. Ghi nội dung log tạm thời xuống cuối file nhật ký
-            echo "==================================================" >> apply_history.log
-            echo "Thời gian: $(date '+%Y-%m-%d %H:%M:%S')" >> apply_history.log
-            echo "Người thực hiện: hngoc-29 (lmtcv1.9@gmail.com)" >> apply_history.log
-            echo "Tên file patch: $filename" >> apply_history.log
-            echo "Dựa trên Commit gốc: $base_commit" >> apply_history.log
-
-            # 9. Gom toàn bộ code mới + file log tạm thời để tạo Commit chính thức
-            git add -A
-            # Thêm [skip ci] để chặn bot kích hoạt vòng lặp vô hạn
-            git commit -m "Chạy tự động: Áp dụng thay đổi từ $filename [skip ci]"
-
-            # 10. Lấy mã commit SHA mới vừa tạo thành công
-            NEW_COMMIT_SHA=$(git rev-parse HEAD)
-
-            # 11. Ghi bổ sung mã commit mới và danh sách file vào cuối file log
-            echo "Mã Commit mới: $NEW_COMMIT_SHA" >> apply_history.log
-            echo "Các file thay đổi: $affected_files" >> apply_history.log
-            echo "==================================================" >> apply_history.log
-            echo "" >> apply_history.log
-
-            # 12. Gộp cập nhật log hoàn chỉnh vào commit chính thức bằng lệnh amend
-            git add apply_history.log
-            git commit --amend --no-edit
           done
 
-      - name: Safe Push Changes
+          echo "All patches are valid. Applying..."
+
+          for patch in "${PATCHES[@]}"; do
+            filename="$(basename "$patch")"
+            echo "Applying: $filename"
+
+            base_commit="$(grep -m1 '^From ' "$patch" | awk '{print $2}' || true)"
+            if [ -z "${base_commit:-}" ]; then
+              base_commit="Không xác định (Patch thủ công)"
+            fi
+
+            affected_files="$(git apply --numstat "$patch" | awk '{print $3}' | paste -sd ',' - || true)"
+            git apply "$patch"
+
+            rm -f "$patch"
+
+            {
+              echo "=================================================="
+              echo "Thời gian: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+              echo "Người thực hiện: hngoc-29 (lmtcv1.9@gmail.com)"
+              echo "Tên patch: $filename"
+              echo "Commit gốc: $base_commit"
+              echo "File thay đổi: ${affected_files:-Không xác định}"
+              echo
+            } >> apply_history.log
+          done
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit after applying patches."
+            exit 0
+          fi
+
+          git commit -m "Auto apply patch updates [skip ci]"
+
+      - name: Push Changes
         run: |
-          # Sử dụng --force-with-lease để tránh ghi đè nếu có ai đó push đè code lên nhánh main trước bot
-          git push origin main --force-with-lease
-q
+          git push origin HEAD:${GITHUB_REF_NAME}
