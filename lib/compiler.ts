@@ -5,11 +5,154 @@
  */
 
 import { spawn } from 'child_process';
-import { readFile, writeFile, unlink } from 'fs/promises';
+import { readFile, writeFile, unlink, mkdir } from 'fs/promises';
+import { existsSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 import os from 'os';
 import { getLangById } from './languages';
+
+// BUG FIX: emcc's C++ standard library is libc++ (LLVM), not GCC's libstdc++ —
+// and `<bits/stdc++.h>` is a libstdc++-only convenience header that just
+// #includes "everything". libc++ never ships it at all, on any platform, so
+// any competitive-programming-style code using it (extremely common — it's
+// literally in this app's own C++ boilerplate) fails WASM compilation with
+// "fatal error: 'bits/stdc++.h' file not found" before even reaching the
+// user's actual code. We create a one-time shim `bits/stdc++.h` that just
+// includes the standard headers people actually mean by it, and point emcc
+// at it with -I. This only affects the WASM compile path — the regular g++
+// path already has the real one built in (it's a GNU extension).
+let wasmShimDirPromise: Promise<string> | null = null;
+function ensureWasmShimHeaders(): Promise<string> {
+  if (!wasmShimDirPromise) {
+    wasmShimDirPromise = (async () => {
+      const dir = join(os.tmpdir(), 'cppeditor-wasm-shim');
+      const bitsDir = join(dir, 'bits');
+      const shimFile = join(bitsDir, 'stdc++.h');
+      if (!existsSync(shimFile)) {
+        await mkdir(bitsDir, { recursive: true });
+        await writeFile(shimFile, WASM_STDCXX_SHIM, { encoding: 'utf-8', mode: 0o644 });
+      }
+      return dir;
+    })();
+  }
+  return wasmShimDirPromise;
+}
+
+const WASM_STDCXX_SHIM = `// Compatibility shim for <bits/stdc++.h> under libc++ (Emscripten/clang).
+// Not a GCC header — just includes the standard library headers commonly
+// expected from it in competitive-programming code.
+#pragma once
+
+// C compatibility
+#include <cassert>
+#include <cctype>
+#include <cerrno>
+#include <cfloat>
+#include <ciso646>
+#include <climits>
+#include <clocale>
+#include <cmath>
+#include <csetjmp>
+#include <csignal>
+#include <cstdarg>
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
+
+// C++11+
+#include <ccomplex>
+#if __cplusplus >= 201103L
+#include <cfenv>
+#include <cinttypes>
+#include <cstdbool>
+#include <cuchar>
+#include <cwchar>
+#include <cwctype>
+#endif
+
+// Containers
+#include <array>
+#include <bitset>
+#include <deque>
+#include <forward_list>
+#include <list>
+#include <map>
+#include <queue>
+#include <set>
+#include <stack>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+// Algorithms / numerics / utilities
+#include <algorithm>
+#include <bit>
+#include <chrono>
+#include <complex>
+#include <execution>
+#include <functional>
+#include <iterator>
+#include <limits>
+#include <locale>
+#include <memory>
+#include <numeric>
+#include <random>
+#include <ratio>
+#include <regex>
+#include <string>
+#include <tuple>
+#include <type_traits>
+#include <typeindex>
+#include <typeinfo>
+#include <utility>
+#include <valarray>
+
+// I/O
+#include <fstream>
+#include <iomanip>
+#include <ios>
+#include <iosfwd>
+#include <iostream>
+#include <istream>
+#include <ostream>
+#include <sstream>
+#include <streambuf>
+
+// Concurrency
+#include <atomic>
+#include <condition_variable>
+#include <future>
+#include <mutex>
+#include <thread>
+
+// Exceptions / misc
+#include <exception>
+#include <initializer_list>
+#include <new>
+#include <stdexcept>
+#include <string_view>
+
+#if __cplusplus >= 201703L
+#include <any>
+#include <charconv>
+#include <filesystem>
+#include <optional>
+#include <variant>
+#endif
+
+#if __cplusplus >= 202002L
+#include <compare>
+#include <concepts>
+#include <numbers>
+#include <ranges>
+#include <span>
+#include <version>
+#endif
+`;
 
 export interface CompileResult {
   stdout: string;
@@ -64,8 +207,6 @@ function runProcess(
   });
 }
 
-import { existsSync } from 'fs';
-
 function getEmccPath(): string {
   if (existsSync('/home/hn/emsdk/upstream/emscripten/emcc')) {
     return '/home/hn/emsdk/upstream/emscripten/emcc';
@@ -93,13 +234,22 @@ export async function compileToWasm(
     const optFlag = optimize ? '-O2' : '-O0';
     const stdFlag = lang.args.find(a => a.startsWith('-std=')) ?? '-std=c++20';
     const emccPath = getEmccPath();
+    // -I points at the bits/stdc++.h shim (see ensureWasmShimHeaders above).
+    const shimDir = await ensureWasmShimHeaders();
 
     const emccArgs = [
       stdFlag, optFlag,
+      '-I', shimDir,
       '-s', 'SINGLE_FILE=1',
       '-s', 'WASM=1',
       '-s', 'EXIT_RUNTIME=1',
       '-s', 'INVOKE_RUN=0', // We will invoke run manually or let it run
+      // BUG FIX: wasm-worker.js calls Module.callMain([]) itself (required
+      // because INVOKE_RUN=0 above disables automatic execution) — but
+      // without exporting it here, that call aborts at runtime with
+      // "'callMain' was not exported. add it to EXPORTED_RUNTIME_METHODS".
+      // Confirmed against the Emscripten FAQ / settings reference.
+      '-s', "EXPORTED_RUNTIME_METHODS=['callMain']",
       '-o', jsFile,
       srcFile,
     ];

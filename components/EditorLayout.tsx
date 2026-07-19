@@ -325,8 +325,17 @@ export default function EditorLayout({
 
     if (settings.useWasm) {
       return new Promise(async (resolve, reject) => {
+        // BUG FIX: this used to only read wasmWorkerRef.current and reject
+        // with "WASM Worker not initialized" if the mount-time useEffect
+        // hadn't created it yet (React Strict Mode's mount→cleanup→remount
+        // cycle, or toggling the WASM setting right before hitting Run, could
+        // both leave this null for a moment). Creating it on demand here
+        // removes the race entirely — there's always a worker by the time we
+        // need one, regardless of effect timing.
+        if (!wasmWorkerRef.current) {
+          wasmWorkerRef.current = new Worker('/wasm-worker.js');
+        }
         const worker = wasmWorkerRef.current;
-        if (!worker) return reject(new Error('WASM Worker not initialized'));
 
         let wasmCode = codeToRun;
         const isPython = langId === 'python3';

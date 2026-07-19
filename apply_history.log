@@ -1,0 +1,7 @@
+==================================================
+Thời gian: 2026-07-19 07:26:04 UTC
+Người thực hiện: hngoc-29 (lmtcv1.9@gmail.com)
+Tên patch: fix-wasm-compile-errors.patch
+Commit gốc: Không xác định (Patch thủ công)
+File thay đổi: components/EditorLayout.tsx,lib/compiler.ts
+
