@@ -1,0 +1,113 @@
+name: Secure Clean Patch Apply
+
+on:
+  push:
+    paths:
+      - "*.patch"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: patch-apply-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apply-and-log:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "hngoc-29"
+          git config user.email "lmtcv1.9@gmail.com"
+
+      - name: Validate and apply patches
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ZERO_SHA="0000000000000000000000000000000000000000"
+          BEFORE_SHA="${{ github.event.before }}"
+          CURRENT_SHA="${{ github.sha }}"
+
+          echo "Checking changed files in this push..."
+
+          if [ "$BEFORE_SHA" = "$ZERO_SHA" ]; then
+            CHANGED_FILES="$(git diff-tree --no-commit-id --name-only -r "$CURRENT_SHA" || true)"
+          else
+            CHANGED_FILES="$(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA" || true)"
+          fi
+
+          if [ -z "${CHANGED_FILES:-}" ]; then
+            echo "No changed files detected."
+            exit 0
+          fi
+
+          NON_PATCH_FILES="$(printf '%s\n' "$CHANGED_FILES" | grep -vE '\.patch$' || true)"
+          if [ -n "${NON_PATCH_FILES:-}" ]; then
+            echo "ERROR: This push contains files that are not .patch files:"
+            printf '%s\n' "$NON_PATCH_FILES"
+            exit 1
+          fi
+
+          mapfile -d '' PATCHES < <(find . -maxdepth 1 -type f -name "*.patch" -print0 | sort -z)
+
+          if [ "${#PATCHES[@]}" -eq 0 ]; then
+            echo "No .patch files found in the repository root."
+            exit 0
+          fi
+
+          echo "Found ${#PATCHES[@]} patch file(s). Validating first..."
+
+          for patch in "${PATCHES[@]}"; do
+            if ! git apply --check "$patch"; then
+              echo "ERROR: Patch cannot be applied cleanly: $patch"
+              exit 1
+            fi
+          done
+
+          echo "All patches are valid. Applying..."
+
+          for patch in "${PATCHES[@]}"; do
+            filename="$(basename "$patch")"
+            echo "Applying: $filename"
+
+            base_commit="$(grep -m1 '^From ' "$patch" | awk '{print $2}' || true)"
+            if [ -z "${base_commit:-}" ]; then
+              base_commit="Không xác định (Patch thủ công)"
+            fi
+
+            affected_files="$(git apply --numstat "$patch" | awk '{print $3}' | paste -sd ',' - || true)"
+            git apply "$patch"
+
+            rm -f "$patch"
+
+            {
+              echo "=================================================="
+              echo "Thời gian: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+              echo "Người thực hiện: hngoc-29 (lmtcv1.9@gmail.com)"
+              echo "Tên patch: $filename"
+              echo "Commit gốc: $base_commit"
+              echo "File thay đổi: ${affected_files:-Không xác định}"
+              echo
+            } >> apply_history.log
+          done
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit after applying patches."
+            exit 0
+          fi
+
+          git commit -m "Auto apply patch updates [skip ci]"
+
+      - name: Push Changes
+        run: |
+          git push origin HEAD:${GITHUB_REF_NAME}
