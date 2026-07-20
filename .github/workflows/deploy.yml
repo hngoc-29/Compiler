@@ -1,32 +1,101 @@
 name: Deploy to Hugging Face Spaces
 
+# 1 file duy nhất, trigger trên MỌI push vào nhánh huggingface.
+#
+# Luồng xử lý:
+#   - Push code bình thường (không có .patch)  -> deploy ngay lập tức.
+#   - Push kèm file .patch                     -> CHỈ áp dụng patch + commit
+#     + push (không [skip ci]) rồi DỪNG, KHÔNG deploy trong lần chạy này.
+#     Chính commit áp-patch đó sẽ tự kích hoạt một lần chạy MỚI, lúc này
+#     không còn file .patch nữa -> lần chạy đó mới thực sự deploy.
+#
+# Nhờ vậy: Hugging Face không bao giờ nhận code ở trạng thái "chưa áp patch",
+# và mỗi thay đổi (dù qua patch hay code thường) đều chỉ deploy đúng 1 lần.
 on:
-  workflow_run:
-    workflows: ["Apply Patch"]
-    types:
-      - completed
-  workflow_dispatch:
+  push:
+    branches:
+      - huggingface
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy-huggingface
+  cancel-in-progress: false
 
 jobs:
-  deploy:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+  apply-patch-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout latest code
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.workflow_run.head_sha }}
 
-      - name: Push to Hugging Face
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # Nếu có .patch: áp dụng + commit + push, rồi DỪNG (không deploy ở lần
+      # chạy này). Nếu không có .patch: bỏ qua, để bước Deploy bên dưới chạy.
+      - name: Tìm và áp dụng file .patch (nếu có)
+        id: apply
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          PATCHES=(*.patch)
+
+          if [ ${#PATCHES[@]} -eq 0 ]; then
+            echo "Không có file .patch — sẽ deploy code hiện tại."
+            echo "patch_applied=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Tìm thấy ${#PATCHES[@]} patch file. Đang kiểm tra trước khi áp dụng..."
+          for patch in "${PATCHES[@]}"; do
+            echo "  Checking: $patch"
+            git apply --check "$patch"
+          done
+
+          echo "Tất cả patch hợp lệ. Đang áp dụng..."
+          for patch in "${PATCHES[@]}"; do
+            echo "  Applying: $patch"
+            git apply --whitespace=fix "$patch"
+            {
+              echo "=================================================="
+              echo "Thời gian: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+              echo "Tên patch: $patch"
+              echo
+            } >> apply_history.log
+          done
+
+          rm -f "${PATCHES[@]}"
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "Không có thay đổi nào sau khi áp patch."
+            echo "patch_applied=false" >> "$GITHUB_OUTPUT"
+          else
+            # CỐ Ý không dùng [skip ci]: để push này tự kích hoạt một lần
+            # chạy MỚI (không còn .patch nữa), và lần chạy đó mới deploy.
+            git commit -m "Auto apply patch: ${PATCHES[*]}"
+            git push origin HEAD:huggingface
+            echo "Đã áp patch và push. Lần chạy mới (do chính push này kích hoạt) sẽ đảm nhiệm việc deploy."
+            echo "patch_applied=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # CHỈ chạy khi lần này KHÔNG áp patch (code thường, hoặc lần chạy thứ 2
+      # sau khi patch đã được áp ở lần chạy trước) -> không bao giờ deploy
+      # code ở trạng thái patch chưa được áp dụng.
+      - name: Deploy to Hugging Face Space
+        if: steps.apply.outputs.patch_applied != 'true'
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_USERNAME: ${{ secrets.HF_USERNAME }}
           SPACE_NAME: "Compiler"
         run: |
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global user.name "github-actions[bot]"
-
-          git remote add hf https://$HF_USERNAME:$HF_TOKEN@huggingface.co/spaces/$HF_USERNAME/$SPACE_NAME
-          git push --force hf HEAD:main
+          git remote add hf "https://$HF_USERNAME:$HF_TOKEN@huggingface.co/spaces/$HF_USERNAME/$SPACE_NAME"
+          git push --force hf HEAD:maina
