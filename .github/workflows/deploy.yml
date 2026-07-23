@@ -98,4 +98,4 @@ jobs:
           SPACE_NAME: "Compiler"
         run: |
           git remote add hf "https://$HF_USERNAME:$HF_TOKEN@huggingface.co/spaces/$HF_USERNAME/$SPACE_NAME"
-          git push --force hf HEAD:maina
+          git push --force hf HEAD:main
