@@ -169,6 +169,9 @@ export const ja: Translations = {
     timeout: '⏱ タイムアウトによりプログラムを停止しました。',
     noRuns: 'まだ実行されていません',
     copy: 'コピー',
+    stdinPlaceholder: '入力してEnterを押してください…',
+    filesTab: '生成されたファイル',
+    filesEmpty: '空のファイル',
     infoLabels: { compile: 'コンパイル', exitCode: '終了コード', runtime: '実行時間', timeout: 'タイムアウト', warnings: '警告' },
     infoValues: { failed: '❌ 失敗', success: '✅ 成功', na: 'N/A', yes: '⚠️ あり', no: 'なし', shown: '表示', hidden: '非表示', none: 'なし' },
     historyStatus: { timeout: 'タイムアウト', error: 'エラー', ok: 'OK' },
@@ -200,6 +203,14 @@ export const ja: Translations = {
 
   editorLayout: {
     compilingToast: '⚙ コンパイル中…',
+    stoppedToast: '⏹ 停止しました',
+    interactiveToggle: 'リアルタイム入力',
+    interactivePlaceholder: 'リアルタイム入力モードがオンです — 実行中にOutputタブで直接入力してください。ここに事前入力する必要はありません。',
+    interactiveHint: '上のスイッチをオフにすると元の事前入力モードに戻ります。',
+    newFilePrompt: 'ファイル名 (例: utils.h, helper.py):',
+    invalidFileName: '無効なファイル名です',
+    duplicateFileName: '同名のファイルが既に存在します',
+    addFile: 'ファイルを追加',
     compileError: '❌ コンパイルエラー!',
     timeoutWarning: '⏱ タイムアウト!',
     cannotConnect: 'サーバーに接続できません。',
@@ -223,6 +234,7 @@ export const ja: Translations = {
 
   ui: {
     run: '実行',
+    stop: '停止',
     runAll: 'すべて実行',
     singleRun: '単体実行',
     format: 'フォーマット',

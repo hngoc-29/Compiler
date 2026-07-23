@@ -301,6 +301,9 @@ export const en: Translations = {
     timeout: '⏱ Program stopped due to timeout.',
     noRuns: 'No runs yet',
     copy: 'Copy',
+    stdinPlaceholder: 'Type input and press Enter…',
+    filesTab: 'Generated files',
+    filesEmpty: 'empty file',
     infoLabels: { compile: 'Compile', exitCode: 'Exit code', runtime: 'Runtime', timeout: 'Timeout', warnings: 'Warnings' },
     infoValues: { failed: '❌ Failed', success: '✅ Success', na: 'N/A', yes: '⚠️ Yes', no: 'No', shown: 'shown', hidden: 'hidden', none: 'None' },
     historyStatus: { timeout: 'Timeout', error: 'Error', ok: 'OK' },
@@ -332,6 +335,14 @@ export const en: Translations = {
 
   editorLayout: {
     compilingToast: '⚙ Compiling…',
+    stoppedToast: '⏹ Stopped',
+    interactiveToggle: 'Live input',
+    interactivePlaceholder: 'Live input mode is on — type input directly in the Output tab while the program runs, no need to pre-fill it here.',
+    interactiveHint: 'Turn the switch above off to go back to pre-filled input.',
+    newFilePrompt: 'File name (e.g. utils.h, helper.py):',
+    invalidFileName: 'Invalid file name',
+    duplicateFileName: 'A file with that name already exists',
+    addFile: 'Add file',
     compileError: '❌ Compile error!',
     timeoutWarning: '⏱ Timeout!',
     cannotConnect: 'Cannot connect to server.',
@@ -357,6 +368,7 @@ export const en: Translations = {
 
   ui: {
     run: 'Run',
+    stop: 'Stop',
     runAll: 'Run All',
     singleRun: 'Single Run',
     format: 'Format',

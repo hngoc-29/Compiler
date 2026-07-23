@@ -140,6 +140,9 @@ export interface Translations {
     timeout: string;
     noRuns: string;
     copy: string;
+    stdinPlaceholder: string;
+    filesTab: string;
+    filesEmpty: string;
     infoLabels: { compile: string; exitCode: string; runtime: string; timeout: string; warnings: string };
     infoValues: { failed: string; success: string; na: string; yes: string; no: string; shown: string; hidden: string; none: string };
     historyStatus: { timeout: string; error: string; ok: string };
@@ -175,6 +178,14 @@ export interface Translations {
   /* EditorLayout */
   editorLayout: {
     compilingToast: string;
+    stoppedToast: string;
+    interactiveToggle: string;       // short label on the toggle switch
+    interactivePlaceholder: string;  // shown instead of the input box
+    interactiveHint: string;         // small hint under the placeholder text
+    newFilePrompt: string;
+    invalidFileName: string;
+    duplicateFileName: string;
+    addFile: string;
     compileError: string;
     timeoutWarning: string;
     cannotConnect: string;
@@ -201,6 +212,7 @@ export interface Translations {
   /* Generic UI labels — buttons, tabs, badges used across multiple components */
   ui: {
     run: string;   // "Run" / "Chạy"
+    stop: string;  // "Stop" / "Dừng"
     runAll: string;   // "Run All"
     singleRun: string;   // "Single Run"
     format: string;   // "Format"

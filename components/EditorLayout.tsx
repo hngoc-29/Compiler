@@ -10,7 +10,7 @@
  * - Real-time diagnostics (Monaco markers from compile error)
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { io as ioConnect, type Socket } from 'socket.io-client';
 
@@ -37,21 +37,90 @@ import { parseGppDiagnostics, type Diagnostic } from '@/lib/cpp-suggestions';
 import { loadSettings, saveSettings, type EditorSettings } from '@/lib/editor-settings';
 import { loadShortcuts, saveShortcuts, matchesShortcut, type Shortcuts } from '@/lib/shortcuts';
 import { loadPrefs, savePrefs } from '@/lib/user-prefs';
-import { Copy, Check, Loader2, Code2, AlignLeft, ClipboardList, MonitorDot, Play, Zap, Gauge, Settings2, Eye, LibrarySquare, Keyboard } from 'lucide-react';
+import { Copy, Check, Loader2, Code2, AlignLeft, ClipboardList, MonitorDot, Play, Zap, Gauge, Settings2, Eye, LibrarySquare, Keyboard, Terminal as TerminalIcon } from 'lucide-react';
 import { useI18n } from '@/lib/i18n-context';
 import LangSelect from '@/components/LangSelect';
 
 const MIN_PX = 120;
 
+// ─── Multi-file ─────────────────────────────────────────────────────────────
+export interface ExtraFile {
+  id: string;
+  name: string;
+  content: string;
+}
+
+function monacoLangForFilename(name: string): string {
+  const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase();
+  switch (ext) {
+    case 'py': return 'python';
+    case 'h': case 'hpp': case 'hh': case 'cpp': case 'cc': case 'cxx': case 'c':
+      return 'cpp';
+    default: return 'plaintext';
+  }
+}
+
+// ── File tabs bar — switch between the main file and extra files (headers /
+// helper modules). Only rendered meaningfully once there's more than the
+// main file; stays out of the way for the (much more common) single-file case.
+function FileTabsBar({ mainFileName, extraFiles, activeFileId, onSelect, onAdd, onDelete, addLabel }: {
+  mainFileName: string;
+  extraFiles: ExtraFile[];
+  activeFileId: string;
+  onSelect: (id: string) => void;
+  onAdd: () => void;
+  onDelete: (id: string) => void;
+  addLabel: string;
+}) {
+  return (
+    <div className="flex items-center gap-1 px-2 pt-1.5 bg-bg-base overflow-x-auto shrink-0 border-b border-gray-800/60">
+      <button
+        onClick={() => onSelect('main')}
+        className={`px-2.5 py-1 text-[11px] font-mono rounded-t whitespace-nowrap transition-colors ${
+          activeFileId === 'main' ? 'bg-gray-800 text-emerald-300' : 'text-gray-500 hover:text-gray-300'
+        }`}
+      >
+        {mainFileName}
+      </button>
+      {extraFiles.map(f => (
+        <span
+          key={f.id}
+          onClick={() => onSelect(f.id)}
+          className={`group flex items-center gap-1 px-2.5 py-1 text-[11px] font-mono rounded-t whitespace-nowrap cursor-pointer transition-colors ${
+            activeFileId === f.id ? 'bg-gray-800 text-sky-300' : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          {f.name}
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(f.id); }}
+            className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition-opacity leading-none"
+            title="Delete"
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      <button
+        onClick={onAdd}
+        title={addLabel}
+        className="px-2 py-1 text-[13px] text-gray-500 hover:text-gray-200 hover:bg-gray-800/60 rounded transition-colors shrink-0"
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
 interface EditorLayoutProps {
   initialCode?: string;
   initialInput?: string;
   initialTestCases?: SavedTestCase[];
+  initialExtraFiles?: ExtraFile[];
   isSharedView?: boolean;
 }
 
 export default function EditorLayout({
-  initialCode, initialInput, initialTestCases, isSharedView = false,
+  initialCode, initialInput, initialTestCases, initialExtraFiles, isSharedView = false,
 }: EditorLayoutProps) {
 
   const { t } = useI18n();
@@ -67,6 +136,47 @@ export default function EditorLayout({
 
   // ─── Content ─────────────────────────────────────────────────────────────
   const [code, setCode] = useState(initialCode ?? lang.hello);
+  // ─── Multi-file (headers / helper modules alongside the main file) ────────
+  // Kept ADDITIVE and separate from `code` on purpose: `code` stays exactly
+  // what it's always been (the main file's content), so every existing path
+  // that reads it (sharing, local storage, run history, templates, the HTTP
+  // fallback API) keeps working completely unchanged for the common
+  // single-file case. Multi-file users get `extraFiles` on top.
+  const [extraFiles, setExtraFiles] = useState<ExtraFile[]>(initialExtraFiles ?? []);
+  // 'main' = editing `code`; otherwise the id of an ExtraFile being edited.
+  const [activeFileId, setActiveFileId] = useState<string>('main');
+  const activeExtraFile = extraFiles.find(f => f.id === activeFileId) ?? null;
+  const mainFileName = lang.ext === 'py' ? 'main.py' : lang.ext === 'c' ? 'main.c' : 'main.cpp';
+  const editorValue = activeExtraFile ? activeExtraFile.content : code;
+  const editorPath = activeExtraFile ? activeExtraFile.name : mainFileName;
+  const editorLanguage = activeExtraFile ? monacoLangForFilename(activeExtraFile.name) : lang.monacoLang;
+  const handleEditorChange = useCallback((v: string | undefined) => {
+    const next = v ?? '';
+    if (activeExtraFile) {
+      setExtraFiles(prev => prev.map(f => f.id === activeExtraFile.id ? { ...f, content: next } : f));
+    } else {
+      setCode(next);
+    }
+  }, [activeExtraFile]);
+  const handleAddFile = useCallback(() => {
+    const name = window.prompt(el.newFilePrompt)?.trim();
+    if (!name) return;
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/.test(name) || name.includes('..')) {
+      toast.error(el.invalidFileName);
+      return;
+    }
+    if (name === mainFileName || extraFiles.some(f => f.name === name)) {
+      toast.error(el.duplicateFileName);
+      return;
+    }
+    const id = `f_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    setExtraFiles(prev => [...prev, { id, name, content: '' }]);
+    setActiveFileId(id);
+  }, [extraFiles, mainFileName, el]);
+  const handleDeleteFile = useCallback((id: string) => {
+    setExtraFiles(prev => prev.filter(f => f.id !== id));
+    setActiveFileId(prev => prev === id ? 'main' : prev);
+  }, []);
   const [output, setOutput] = useState<CompileResult | null>(null);
   const [isCompiling, setIsCompiling] = useState(false);
   const [isReady, setIsReady] = useState(false);
@@ -75,6 +185,19 @@ export default function EditorLayout({
   // True once the server/worker confirms the compile step is done and the
   // program itself has started running (see BUG FIX note on isLoading below).
   const [isActuallyRunning, setIsActuallyRunning] = useState(false);
+  // Explicit interactive-mode toggle (replaces the old implicit "input box
+  // is empty = interactive" heuristic — that guess was invisible/surprising;
+  // this is a switch the person actually sees and controls). When on, the
+  // pre-filled Input box is hidden and input is typed live in the Output
+  // panel while the program runs instead.
+  const [interactiveMode, setInteractiveMode] = useState(false);
+  // Shared accumulator for streamed stdout — a plain closure `let buf` inside
+  // handleRun wasn't reachable from handleSendStdin, so echoing a typed line
+  // (via a separate functional setState) could get silently wiped out the
+  // next time a real output chunk arrived (that path did an ABSOLUTE
+  // setStreamStdout(buf), overwriting whatever the echo had just added). One
+  // shared ref = one source of truth, no clobbering in either direction.
+  const streamBufRef = useRef('');
 
   // ─── Diagnostics (from last compile error → Monaco markers) ──────────────
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
@@ -211,13 +334,14 @@ export default function EditorLayout({
   // ─── Auto-save ────────────────────────────────────────────────────────────
   const autoSaveFn = useRef<ReturnType<typeof debounce> | null>(null);
   useEffect(() => {
-    autoSaveFn.current = debounce(async (c: string, tcs: TestCase[]) => {
+    autoSaveFn.current = debounce(async (c: string, tcs: TestCase[], xf: ExtraFile[]) => {
       try {
         const { compressToBase64Url } = await import('@/lib/compress');
         const payload = JSON.stringify({
           code: c,
           input: tcs[0]?.input ?? '',          // keep for backwards compat
           testCases: serializeTestCases(tcs),
+          extraFiles: xf,
         });
         const compressed = await compressToBase64Url(payload);
         localStorage.setItem(AUTOSAVE_KEY, compressed);
@@ -228,12 +352,12 @@ export default function EditorLayout({
   useEffect(() => {
     if (!isReady) return;
     if (isSharedView) return; // Don't overwrite own code when viewing a shared link
-    autoSaveFn.current?.(code, testCases);
-  }, [code, testCases, isReady, isSharedView]);
+    autoSaveFn.current?.(code, testCases, extraFiles);
+  }, [code, testCases, extraFiles, isReady, isSharedView]);
 
   useEffect(() => {
     if (initialCode !== undefined || initialInput !== undefined || initialTestCases !== undefined) {
-      // Shared view: initialTestCases already applied via useState initialiser.
+      // Shared view: initialTestCases/initialExtraFiles already applied via useState initialiser.
       // Apply initialInput only as backwards-compat fallback (old links without testCases).
       if (initialInput !== undefined && initialTestCases === undefined) {
         setSingleInput(initialInput);
@@ -253,6 +377,11 @@ export default function EditorLayout({
         } else if (parsed?.input !== undefined) {
           // Old format: only had a single input
           setSingleInput(parsed.input);
+        }
+        if (Array.isArray(parsed?.extraFiles)) {
+          setExtraFiles(parsed.extraFiles.filter((f: unknown): f is ExtraFile =>
+            !!f && typeof f === 'object' && typeof (f as ExtraFile).id === 'string' &&
+            typeof (f as ExtraFile).name === 'string' && typeof (f as ExtraFile).content === 'string'));
         }
       } catch { localStorage.removeItem(AUTOSAVE_KEY); }
       finally { setIsReady(true); }
@@ -357,7 +486,10 @@ export default function EditorLayout({
             const res = await fetch('/api/compile-wasm', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ code: codeToRun, optimize, langId }),
+              body: JSON.stringify({
+                code: codeToRun, optimize, langId,
+                extraFiles: extraFiles.map(f => ({ name: f.name, content: f.content })),
+              }),
             });
             const data = await res.json();
             if (!res.ok || data.error) throw new Error(data.error || 'WASM compilation failed');
@@ -409,6 +541,7 @@ export default function EditorLayout({
           code: wasmCode,
           input: inputToRun,
           langId,
+          extraFiles: isPython ? extraFiles.map(f => ({ name: f.name, content: f.content })) : undefined,
         });
 
         // Timeout handling
@@ -450,13 +583,20 @@ export default function EditorLayout({
         socket.on('compile:status', onStatusEvt);
         socket.on('compile:done', onDone);
         socket.on('compile:error', onErr);
-        socket.emit('compile', { code: codeToRun, input: inputToRun, optimize, langId, timeoutMs: effectiveTimeoutMs, interactive, realtime: settings.realtimeLogs });
+        socket.emit('compile', {
+          code: codeToRun, input: inputToRun, optimize, langId,
+          timeoutMs: effectiveTimeoutMs, interactive, realtime: settings.realtimeLogs,
+          extraFiles: extraFiles.map(f => ({ name: f.name, content: f.content })),
+        });
       } else {
         // HTTP fallback
         fetch('/api/compile', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code: codeToRun, input: inputToRun, optimize, langId, timeoutMs: settings.runTimeoutMs }),
+          body: JSON.stringify({
+            code: codeToRun, input: inputToRun, optimize, langId, timeoutMs: settings.runTimeoutMs,
+            extraFiles: extraFiles.map(f => ({ name: f.name, content: f.content })),
+          }),
         })
           .then(res => res.ok
             ? res.json()
@@ -466,9 +606,17 @@ export default function EditorLayout({
           .catch(reject);
       }
     });
-  }, [optimize, langId, settings.runTimeoutMs, settings.realtimeLogs]);
+  }, [optimize, langId, settings.runTimeoutMs, settings.realtimeLogs, extraFiles]);
 
   const handleSendStdin = useCallback((data: string) => {
+    // Echo what was typed into the transcript, right where it was sent — a
+    // real terminal always shows your own input inline; without this the
+    // "terminal" just silently swallowed whatever you typed, out of sync
+    // with the actual program's cin/input() calls that consumed it.
+    const echoLine = data.endsWith('\n') ? data.slice(0, -1) : data;
+    streamBufRef.current += `» ${echoLine}\n`;
+    setStreamStdout(streamBufRef.current);
+
     if (settings.useWasm && wasmWorkerRef.current) {
       wasmWorkerRef.current.postMessage({ type: 'stdin', data });
     } else {
@@ -482,6 +630,28 @@ export default function EditorLayout({
     }
   }, [settings.useWasm]);
 
+  // ─── Stop a running program ────────────────────────────────────────────────
+  // Server path: real Ctrl+C (SIGINT) sent to the process, same as a terminal.
+  // WASM path: a running WASM/Pyodide computation can't be "signaled" from the
+  // outside mid-instruction — the only reliable way to actually stop it is to
+  // terminate the whole Worker (same technique already used for the timeout
+  // case) and spin up a fresh one so the next Run isn't left in a broken state.
+  const handleStop = useCallback(() => {
+    if (settings.useWasm && wasmWorkerRef.current) {
+      wasmWorkerRef.current.terminate();
+      wasmWorkerRef.current = new Worker('/wasm-worker.js');
+      setIsCompiling(false);
+      setIsActuallyRunning(false);
+      toast.dismiss('run');
+      setOutput({ stdout: streamBufRef.current, stderr: '', compileError: null, exitCode: -1, runtime: 0, timedOut: false, stopped: true });
+      streamBufRef.current = '';
+      setStreamStdout('');
+      toast.info(el.stoppedToast);
+    } else {
+      socketRef.current?.emit('compile:stop');
+    }
+  }, [settings.useWasm, el]);
+
   // ─── Run single (main input) ──────────────────────────────────────────────
   const handleRun = useCallback(async () => {
     if (isCompiling) return;
@@ -493,15 +663,12 @@ export default function EditorLayout({
     setPanels(prev => ({ ...prev, output: true }));
     toast.info(el.compilingToast, { id: 'run', duration: 15000 });
 
-    let buf = '';
+    streamBufRef.current = '';
     try {
-      // If single input is empty, we assume interactive mode
-      const isInteractive = singleInput.trim() === '';
-
       const result = await runOnce(code, singleInput, (chunk) => {
-        buf += chunk;
-        setStreamStdout(buf);
-      }, isInteractive, (status) => setIsActuallyRunning(status === 'running'));
+        streamBufRef.current += chunk;
+        setStreamStdout(streamBufRef.current);
+      }, interactiveMode, (status) => setIsActuallyRunning(status === 'running'));
 
       toast.dismiss('run');
       setOutput(result);
@@ -521,7 +688,8 @@ export default function EditorLayout({
         toast.error(el.compileError);
       } else {
         setDiagnostics([]);
-        if (result.timedOut) toast.warning(el.timeoutWarning);
+        if (result.stopped) toast.info(el.stoppedToast);
+        else if (result.timedOut) toast.warning(el.timeoutWarning);
         else if (result.exitCode !== 0) toast.warning(`⚠️ Exit ${result.exitCode}`);
         else toast.success(`✅ OK · ${result.runtime}ms`);
       }
@@ -532,7 +700,7 @@ export default function EditorLayout({
       setIsCompiling(false);
       setIsActuallyRunning(false);
     }
-  }, [code, singleInput, isCompiling, isMobile, runOnce]);
+  }, [code, singleInput, isCompiling, isMobile, runOnce, interactiveMode, el]);
 
   // ─── Run one test case ────────────────────────────────────────────────────
   const handleRunOne = useCallback(async (tc: TestCase) => {
@@ -760,10 +928,21 @@ export default function EditorLayout({
         !(e.target instanceof HTMLTextAreaElement)) {
         setShortcutsOpen(v => !v);
       }
+      // Ctrl+C → stop the running program, mirroring a real terminal — but
+      // only when there's no text selected, so copying output with Ctrl+C
+      // (the normal, expected browser behavior) still works untouched.
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'c' && isCompiling) {
+        const hasSelection = (window.getSelection()?.toString().length ?? 0) > 0;
+        if (!hasSelection) {
+          e.preventDefault();
+          handleStop();
+        }
+      }
     };
     window.addEventListener('keydown', fn);
     return () => window.removeEventListener('keydown', fn);
-  }, [handleRun, handleRunAll, activeTab, shortcuts]);
+  }, [handleRun, handleRunAll, activeTab, shortcuts, isCompiling, handleStop]);
+
 
   // ─── Desktop panel helpers ────────────────────────────────────────────────
   const visiblePanels = [panels.code, panels.input, panels.output].filter(Boolean).length;
@@ -890,6 +1069,7 @@ export default function EditorLayout({
             code={code} input={singleInput} output={output}
             isCompiling={isCompiling || isRunningAll}
             onRun={activeTab === 'testcases' ? handleRunAll : handleRun}
+            onStop={handleStop}
             panels={panels} onTogglePanel={handleTogglePanel}
             optimize={optimize} onToggleOptimize={() => { setOptimize(v => { const next = !v; savePrefs({ ...loadPrefs(), optimize: next }); return next; }); }}
             isSharedView={isSharedView}
@@ -898,6 +1078,7 @@ export default function EditorLayout({
             minimal={true}
             onOpenSettings={() => setSettingsOpen(true)}
             testCases={testCases}
+            extraFiles={extraFiles}
           />
           <LangSelect variant="compact" className="ml-1" />
         </header>
@@ -911,12 +1092,22 @@ export default function EditorLayout({
 
             {/* Code tab */}
             <div className={`absolute inset-0 ${mobileTab === 'code' ? 'flex flex-col' : 'hidden'}`}>
+              <FileTabsBar
+                mainFileName={mainFileName}
+                extraFiles={extraFiles}
+                activeFileId={activeFileId}
+                onSelect={setActiveFileId}
+                onAdd={handleAddFile}
+                onDelete={handleDeleteFile}
+                addLabel={el.addFile}
+              />
               <CodeEditor
-                value={code}
-                onChange={(v) => setCode(v ?? '')}
+                value={editorValue}
+                onChange={handleEditorChange}
                 onRun={handleRun}
-                language={lang.monacoLang}
-                diagnostics={diagnostics}
+                language={editorLanguage}
+                path={editorPath}
+                diagnostics={activeFileId === 'main' ? diagnostics : []}
                 settings={settings}
                 shortcuts={shortcuts}
               />
@@ -929,9 +1120,16 @@ export default function EditorLayout({
                   <span className="dot dot-yellow" />
                   <span className="text-xs font-mono text-gray-400">stdin / input</span>
                 </div>
-                <CopyButton text={singleInput} label="input" />
+                <div className="flex items-center gap-2">
+                  <InteractiveModeToggle checked={interactiveMode} onChange={setInteractiveMode} label={el.interactiveToggle} />
+                  <CopyButton text={singleInput} label="input" />
+                </div>
               </div>
-              <SingleInputEditor value={singleInput} onChange={setSingleInput} fontSize={settings.fontSize} />
+              {interactiveMode ? (
+                <InteractiveModePlaceholder text={el.interactivePlaceholder} hint={el.interactiveHint} />
+              ) : (
+                <SingleInputEditor value={singleInput} onChange={setSingleInput} fontSize={settings.fontSize} />
+              )}
             </div>
 
             {/* Tests tab */}
@@ -956,6 +1154,7 @@ export default function EditorLayout({
                 isRunning={isCompiling}
                 onStdin={handleSendStdin}
                 onEndStdin={handleEndStdin}
+                onStop={handleStop}
               />
             </div>
           </div>
@@ -1060,9 +1259,18 @@ export default function EditorLayout({
           {/* Code pane */}
           {panels.code && (
             <div className="flex flex-col overflow-hidden" style={getDesktopStyle('code', codeW)}>
-              <PaneBar dotColor="dot-green" title={lang.ext === 'py' ? 'main.py' : lang.ext === 'c' ? 'main.c' : 'main.cpp'} subtitle={codeSubtitle}>
+              <FileTabsBar
+                mainFileName={mainFileName}
+                extraFiles={extraFiles}
+                activeFileId={activeFileId}
+                onSelect={setActiveFileId}
+                onAdd={handleAddFile}
+                onDelete={handleDeleteFile}
+                addLabel={el.addFile}
+              />
+              <PaneBar dotColor="dot-green" title={activeExtraFile ? activeExtraFile.name : mainFileName} subtitle={activeFileId === 'main' ? codeSubtitle : undefined}>
                 <span className="text-[10px] text-gray-700 font-mono mr-1">
-                  {code.split('\n').length}L · {code.length}C
+                  {editorValue.split('\n').length}L · {editorValue.length}C
                 </span>
                 <button
                   onClick={() => setTemplatesOpen(true)}
@@ -1078,15 +1286,16 @@ export default function EditorLayout({
                 >
                   <Keyboard size={12} />
                 </button>
-                <CopyButton text={code} label="code" />
+                <CopyButton text={editorValue} label={activeExtraFile ? activeExtraFile.name : 'code'} />
               </PaneBar>
               <div className="flex-1 overflow-hidden">
                 <CodeEditor
-                  value={code}
-                  onChange={(v) => setCode(v ?? '')}
+                  value={editorValue}
+                  onChange={handleEditorChange}
                   onRun={handleRun}
-                  language={lang.monacoLang}
-                  diagnostics={diagnostics}
+                  language={editorLanguage}
+                  path={editorPath}
+                  diagnostics={activeFileId === 'main' ? diagnostics : []}
                   settings={settings}
                   shortcuts={shortcuts}
                 />
@@ -1104,10 +1313,15 @@ export default function EditorLayout({
               {activeTab === 'single' ? (
                 <>
                   <PaneBar dotColor="dot-yellow" title="input.txt" subtitle="stdin">
+                    <InteractiveModeToggle checked={interactiveMode} onChange={setInteractiveMode} label={el.interactiveToggle} />
                     <CopyButton text={singleInput} label="input" />
                   </PaneBar>
-                  <div className="flex-1 overflow-hidden">
-                    <SingleInputEditor value={singleInput} onChange={setSingleInput} fontSize={settings.fontSize} />
+                  <div className="flex-1 overflow-hidden flex flex-col">
+                    {interactiveMode ? (
+                      <InteractiveModePlaceholder text={el.interactivePlaceholder} hint={el.interactiveHint} />
+                    ) : (
+                      <SingleInputEditor value={singleInput} onChange={setSingleInput} fontSize={settings.fontSize} />
+                    )}
                   </div>
                 </>
               ) : (
@@ -1138,6 +1352,7 @@ export default function EditorLayout({
                 isRunning={isCompiling}
                 onStdin={handleSendStdin}
                 onEndStdin={handleEndStdin}
+                onStop={handleStop}
               />
             </div>
           )}
@@ -1186,7 +1401,7 @@ function SingleInputEditor({ value, onChange, fontSize = 13 }: {
 
 // ── PaneBar ───────────────────────────────────────────────────────────────
 function PaneBar({ dotColor, title, subtitle, children }: {
-  dotColor: string; title: string; subtitle?: string; children?: React.ReactNode;
+  dotColor: string; title: string; subtitle?: string; children?: ReactNode;
 }) {
   return (
     <div className="pane-bar">
@@ -1196,6 +1411,38 @@ function PaneBar({ dotColor, title, subtitle, children }: {
         {subtitle && <span className="text-[10px] text-gray-600">{subtitle}</span>}
       </div>
       <div className="flex items-center gap-1">{children}</div>
+    </div>
+  );
+}
+
+// ── Interactive-mode toggle (compact switch for the Input pane header) ─────
+function InteractiveModeToggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      title={label}
+      className={`flex items-center gap-1.5 pl-2 pr-1 py-0.5 rounded-full text-[10px] font-medium transition-colors ${
+        checked ? 'bg-emerald-600/20 text-emerald-300' : 'bg-gray-800 text-gray-500 hover:text-gray-300'
+      }`}
+    >
+      <span className="whitespace-nowrap">{label}</span>
+      <span className={`relative w-6 h-3.5 rounded-full transition-colors ${checked ? 'bg-emerald-500' : 'bg-gray-600'}`}>
+        <span className={`absolute top-0.5 h-2.5 w-2.5 rounded-full bg-white transition-transform ${checked ? 'translate-x-3' : 'translate-x-0.5'}`} />
+      </span>
+    </button>
+  );
+}
+
+// ── Placeholder shown instead of the input textarea while interactive mode
+// is on — input now happens live in the terminal (Output tab) as the
+// program runs, so the pre-filled box would be unused/misleading here.
+function InteractiveModePlaceholder({ text, hint }: { text: string; hint: string }) {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center gap-2 text-gray-600 p-6 text-center">
+      <TerminalIcon size={26} className="opacity-40" />
+      <p className="text-xs leading-relaxed max-w-[220px]">{text}</p>
+      <p className="text-[10px] text-gray-700">{hint}</p>
     </div>
   );
 }

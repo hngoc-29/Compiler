@@ -301,6 +301,9 @@ export const vi: Translations = {
     timeout: '⏱ Chương trình bị dừng do timeout.',
     noRuns: 'Chưa có lần chạy nào',
     copy: 'Sao chép',
+    stdinPlaceholder: 'Gõ input và nhấn Enter…',
+    filesTab: 'File sinh ra',
+    filesEmpty: 'file rỗng',
     infoLabels: { compile: 'Biên dịch', exitCode: 'Mã thoát', runtime: 'Thời gian', timeout: 'Timeout', warnings: 'Cảnh báo' },
     infoValues: { failed: '❌ Thất bại', success: '✅ Thành công', na: 'N/A', yes: '⚠️ Có', no: 'Không', shown: 'hiện', hidden: 'ẩn', none: 'Không có' },
     historyStatus: { timeout: 'Timeout', error: 'Lỗi', ok: 'OK' },
@@ -332,6 +335,14 @@ export const vi: Translations = {
 
   editorLayout: {
     compilingToast: '⚙ Đang compile…',
+    stoppedToast: '⏹ Đã dừng',
+    interactiveToggle: 'Nhập realtime',
+    interactivePlaceholder: 'Đang bật chế độ nhập thời gian thực — gõ input trực tiếp trong tab Output khi chương trình chạy, không cần điền sẵn ở đây.',
+    interactiveHint: 'Tắt công tắc phía trên để quay lại điền input sẵn như bình thường.',
+    newFilePrompt: 'Tên file (vd: utils.h, helper.py):',
+    invalidFileName: 'Tên file không hợp lệ',
+    duplicateFileName: 'File này đã tồn tại',
+    addFile: 'Thêm file',
     compileError: '❌ Compile error!',
     timeoutWarning: '⏱ Timeout!',
     cannotConnect: 'Không thể kết nối server.',
@@ -357,6 +368,7 @@ export const vi: Translations = {
 
   ui: {
     run: 'Chạy',
+    stop: 'Dừng',
     runAll: 'Chạy tất cả',
     singleRun: 'Chạy đơn',
     format: 'Format',

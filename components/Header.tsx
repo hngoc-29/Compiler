@@ -7,7 +7,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import {
-  Play, Loader2, Download, ChevronDown,
+  Play, Square, Download, ChevronDown,
   FileCode, FileText, FileOutput, Cpu,
   PanelLeft, PanelRight, Zap, Gauge, Terminal, Settings2,
 } from 'lucide-react';
@@ -31,6 +31,8 @@ interface HeaderProps {
   output:           CompileResult | null;
   isCompiling:      boolean;
   onRun:            () => void;
+  /** Dừng chương trình đang chạy (nút Run biến thành Stop khi isCompiling). */
+  onStop?:          () => void;
   panels:           PanelVisibility;
   onTogglePanel:    (p: keyof PanelVisibility) => void;
   optimize:         boolean;
@@ -45,10 +47,11 @@ interface HeaderProps {
   onOpenSettings?:  () => void;
   minimal?:         boolean;
   testCases?:       TestCase[];
+  extraFiles?:      { id: string; name: string; content: string }[];
 }
 
 export default function Header({
-  code, input, output, isCompiling, onRun,
+  code, input, output, isCompiling, onRun, onStop,
   panels, onTogglePanel,
   optimize, onToggleOptimize,
   isSharedView = false,
@@ -58,6 +61,7 @@ export default function Header({
   minimal = false,
   onOpenSettings,
   testCases,
+  extraFiles,
 }: HeaderProps) {
   const { t } = useI18n();
   const ht = t.header;
@@ -119,11 +123,11 @@ export default function Header({
           className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all border ${optimize ? 'bg-amber-900/40 border-amber-700/50 text-amber-300 hover:bg-amber-800/40' : 'bg-emerald-900/30 border-emerald-700/40 text-emerald-400 hover:bg-emerald-800/30'}`}>
           {optimize ? <><Gauge size={11}/><span className="hidden sm:inline">O2</span></> : <><Zap size={11}/><span className="hidden sm:inline">Fast</span></>}
         </button>
-        <button onClick={onRun} disabled={isCompiling} title={`${ui.run} (Ctrl+Enter)`}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-md transition-colors">
-          {isCompiling ? <Loader2 size={12} className="animate-spin"/> : <Play size={12}/>}
-          <span className="hidden sm:inline">{isCompiling ? 'Running...' : 'Run'}</span>
-          <kbd className="hidden lg:inline text-[9px] opacity-40 ml-0.5">⌘↵</kbd>
+        <button onClick={isCompiling ? onStop : onRun} disabled={isCompiling && !onStop} title={isCompiling ? `${ui.stop} (Ctrl+C)` : `${ui.run} (Ctrl+Enter)`}
+          className={`flex items-center gap-1.5 px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-md transition-colors ${isCompiling ? 'bg-red-600 hover:bg-red-500' : 'bg-indigo-600 hover:bg-indigo-500'}`}>
+          {isCompiling ? <Square size={12} fill="currentColor"/> : <Play size={12}/>}
+          <span className="hidden sm:inline">{isCompiling ? (ui.stop) : 'Run'}</span>
+          <kbd className="hidden lg:inline text-[9px] opacity-40 ml-0.5">{isCompiling ? '^C' : '⌘↵'}</kbd>
         </button>
         <div className="relative" ref={exportRef}>
           <button onClick={() => setExportOpen(v => !v)} className="flex items-center gap-1 px-2.5 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium rounded-md transition-colors" title={ht.download}>
@@ -142,7 +146,7 @@ export default function Header({
             </div>
           )}
         </div>
-        <ShareButton code={code} input={input} testCases={testCases}/>
+        <ShareButton code={code} input={input} testCases={testCases} extraFiles={extraFiles}/>
         {onOpenSettings && (
           <button onClick={onOpenSettings} title={el.editorSettings}
             className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-700/60 hover:bg-gray-600/60 text-gray-300 text-xs font-medium rounded-md transition-colors border border-gray-700/50">
@@ -226,18 +230,21 @@ export default function Header({
             : <><Zap   size={11}/><span className="hidden sm:inline">Fast</span></>}
         </button>
 
-        {/* Run */}
+        {/* Run / Stop — becomes Stop (red) while a program is running so it's
+            reachable with one tap on mobile where Ctrl+C doesn't exist. */}
         <button
-          onClick={onRun}
-          disabled={isCompiling}
-          title={`${ui.run} (Ctrl+Enter)`}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-md transition-colors"
+          onClick={isCompiling ? onStop : onRun}
+          disabled={isCompiling && !onStop}
+          title={isCompiling ? `${ui.stop} (Ctrl+C)` : `${ui.run} (Ctrl+Enter)`}
+          className={`flex items-center gap-1.5 px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-md transition-colors ${
+            isCompiling ? 'bg-red-600 hover:bg-red-500' : 'bg-indigo-600 hover:bg-indigo-500'
+          }`}
         >
           {isCompiling
-            ? <Loader2 size={12} className="animate-spin"/>
+            ? <Square size={12} fill="currentColor"/>
             : <Play    size={12}/>}
-          <span className="hidden sm:inline">{isCompiling ? 'Running...' : 'Run'}</span>
-          <kbd className="hidden lg:inline text-[9px] opacity-40 ml-0.5">⌘↵</kbd>
+          <span className="hidden sm:inline">{isCompiling ? (ui.stop) : 'Run'}</span>
+          <kbd className="hidden lg:inline text-[9px] opacity-40 ml-0.5">{isCompiling ? '^C' : '⌘↵'}</kbd>
         </button>
 
         {/* Export */}
@@ -271,7 +278,7 @@ export default function Header({
         </div>
 
         {/* Share */}
-        <ShareButton code={code} input={input} testCases={testCases}/>
+        <ShareButton code={code} input={input} testCases={testCases} extraFiles={extraFiles}/>
 
         {/* Settings */}
         {onOpenSettings && (

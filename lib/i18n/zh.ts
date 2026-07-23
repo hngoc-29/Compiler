@@ -300,6 +300,9 @@ export const zh: Translations = {
     timeout: '⏱ 程序因超时已停止。',
     noRuns: '暂无运行记录',
     copy: '复制',
+    stdinPlaceholder: '输入内容并按 Enter…',
+    filesTab: '生成的文件',
+    filesEmpty: '空文件',
     infoLabels: { compile: '编译', exitCode: '退出码', runtime: '运行时间', timeout: '超时', warnings: '警告' },
     infoValues: { failed: '❌ 失败', success: '✅ 成功', na: 'N/A', yes: '⚠️ 是', no: '否', shown: '已显示', hidden: '已隐藏', none: '无' },
     historyStatus: { timeout: '超时', error: '错误', ok: '正常' },
@@ -331,6 +334,14 @@ export const zh: Translations = {
 
   editorLayout: {
     compilingToast: '⚙ 编译中…',
+    stoppedToast: '⏹ 已停止',
+    interactiveToggle: '实时输入',
+    interactivePlaceholder: '实时输入模式已开启 — 程序运行时请直接在 Output 标签页输入，无需在此预填。',
+    interactiveHint: '关闭上方开关可恢复为预填输入模式。',
+    newFilePrompt: '文件名（如 utils.h、helper.py）：',
+    invalidFileName: '文件名无效',
+    duplicateFileName: '该文件已存在',
+    addFile: '添加文件',
     compileError: '❌ 编译错误！',
     timeoutWarning: '⏱ 超时！',
     cannotConnect: '无法连接到服务器。',
@@ -354,6 +365,7 @@ export const zh: Translations = {
 
   ui: {
     run: '运行',
+    stop: '停止',
     runAll: '全部运行',
     singleRun: '单次运行',
     format: '格式化',

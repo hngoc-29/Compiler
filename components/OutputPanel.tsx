@@ -9,7 +9,7 @@
 import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import {
   Copy, Trash2, Terminal, AlertCircle, Info,
-  Loader2, CheckCircle, XCircle, Clock, AlertTriangle, History, RotateCcw,
+  Loader2, CheckCircle, XCircle, Clock, AlertTriangle, History, RotateCcw, Square, FileOutput,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDuration } from '@/lib/utils';
@@ -23,6 +23,11 @@ export interface CompileResult {
   exitCode: number;
   runtime: number;
   timedOut: boolean;
+  /** True when the run ended because the user hit Stop/Ctrl+C, not a crash. */
+  stopped?: boolean;
+  /** Files the program created or modified while running (e.g. an .OUT file
+   *  written via ofstream) — read back after the run so they're viewable. */
+  outputFiles?: { name: string; content: string; size: number }[];
 }
 
 interface OutputPanelProps {
@@ -33,9 +38,12 @@ interface OutputPanelProps {
   isRunning?: boolean;
   onStdin?: (data: string) => void;
   onEndStdin?: () => void;
+  /** Stop the running program — surfaced right in the terminal prompt row
+   *  too (not just the Header button) since that's one less reach on mobile. */
+  onStop?: () => void;
 }
 
-type TabId = 'output' | 'errors' | 'info' | 'history';
+type TabId = 'output' | 'errors' | 'info' | 'history' | 'files';
 
 // ─── Parse GCC/G++ diagnostic output ────────────────────────────────────────
 interface ParsedDiagnostics {
@@ -89,12 +97,20 @@ function parseCompilerOutput(raw: string): ParsedDiagnostics {
 // distinct (dim, italic, blue) and interleaved in place, so it's obvious at a
 // glance which lines are "meta" info and which are the program's real stdout.
 const ENGINE_LOG_PREFIX = '⚙️ [Engine]';
+// Lines starting with this marker are what the person typed into the live
+// stdin bar, echoed back into the transcript by EditorLayout's
+// handleSendStdin — mirrors how a real terminal always shows your own
+// keystrokes inline, not just the program's replies.
+const ECHO_PREFIX = '» ';
+
 function renderStdout(stdout: string) {
   const lines = stdout.split('\n');
   const nodes: ReactNode[] = [];
   lines.forEach((line, i) => {
     if (line.startsWith(ENGINE_LOG_PREFIX)) {
       nodes.push(<span key={i} className="text-sky-400/80 italic">{line}</span>);
+    } else if (line.startsWith(ECHO_PREFIX)) {
+      nodes.push(<span key={i} className="text-white font-semibold">{line}</span>);
     } else {
       nodes.push(line);
     }
@@ -103,13 +119,40 @@ function renderStdout(stdout: string) {
   return nodes;
 }
 
-export default function OutputPanel({ result, isLoading, onClear, showWarnings, isRunning, onStdin, onEndStdin }: OutputPanelProps) {
+export default function OutputPanel({ result, isLoading, onClear, showWarnings, isRunning, onStdin, onEndStdin, onStop }: OutputPanelProps) {
   const { t } = useI18n();
   const ot = t.output;
   const ui = t.ui;
   const [tab, setTab] = useState<TabId>('output');
   const [stdinInput, setStdinInput] = useState('');
   const stdinRef = useRef<HTMLInputElement>(null);
+  const stdoutRef = useRef<HTMLPreElement>(null);
+  // "Stuck to bottom" pattern: auto-scroll follows new output only while the
+  // person hasn't manually scrolled up to read something earlier — scrolling
+  // up opts out of auto-scroll until they scroll back down themselves again.
+  const stickToBottomRef = useRef(true);
+
+  const handleStdoutScroll = useCallback(() => {
+    const el = stdoutRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    stickToBottomRef.current = distanceFromBottom < 40; // small tolerance
+  }, []);
+
+  // BUG FIX: log output didn't auto-scroll — new lines kept streaming in but
+  // the view stayed wherever it was, so on any real output you had to keep
+  // manually dragging the scrollbar down to see what just printed.
+  useEffect(() => {
+    if (stickToBottomRef.current && stdoutRef.current) {
+      stdoutRef.current.scrollTop = stdoutRef.current.scrollHeight;
+    }
+  }, [result?.stdout]);
+
+  // A fresh run should always start stuck-to-bottom, even if the person had
+  // scrolled up to read something from the previous run.
+  useEffect(() => {
+    if (isRunning) stickToBottomRef.current = true;
+  }, [isRunning]);
 
   // Auto-focus stdin input when running starts
   useEffect(() => {
@@ -178,9 +221,15 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings, 
     return <Badge color="green"><CheckCircle size={10} /> OK · {formatDuration(result.runtime)}</Badge>;
   };
 
+  const outputFiles = result?.outputFiles ?? [];
+  const [activeFileTab, setActiveFileTab] = useState<string | null>(null);
+
   const tabs = [
     { id: 'output' as TabId, label: ui.tabs.output, icon: <Terminal size={11} /> },
     { id: 'errors' as TabId, label: ui.tabs.errors, icon: <AlertCircle size={11} />, badge: visibleIssueCount || undefined },
+    ...(outputFiles.length > 0
+      ? [{ id: 'files' as TabId, label: ot.filesTab, icon: <FileOutput size={11} />, badge: outputFiles.length, badgeColor: 'bg-sky-600' }]
+      : []),
     { id: 'info' as TabId, label: ui.tabs.info, icon: <Info size={11} /> },
     { id: 'history' as TabId, label: ui.tabs.history, icon: <History size={11} />, badge: history.length || undefined, badgeColor: 'bg-gray-600' },
   ];
@@ -245,22 +294,25 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings, 
 
         {(!isLoading && (result || isRunning) && tab === 'output') && (
           <div className="flex flex-col h-full">
-            <pre className="output-pre text-emerald-300 flex-1 overflow-auto">
+            <pre ref={stdoutRef} onScroll={handleStdoutScroll} className="output-pre text-emerald-300 flex-1 overflow-auto">
               {result?.stdout ? renderStdout(result.stdout) : <span className="text-gray-700 italic">(no stdout)</span>}
               {result?.timedOut && (
                 <span className="block mt-2 text-yellow-400">{ot.timeout}</span>
               )}
             </pre>
             {isRunning && (
-              <div className="p-2 bg-gray-900/50 border-t border-gray-800 shrink-0">
-                <form onSubmit={handleStdinSubmit} className="flex gap-2">
-                  <span className="text-gray-500 font-mono text-xs py-1.5 pl-1">&gt;</span>
+              <div className="p-2 bg-gray-900/50 border-t border-emerald-500/30 shrink-0">
+                <form onSubmit={handleStdinSubmit} className="flex gap-2 items-center">
+                  {/* Same » used for echoed lines above — the live prompt reads
+                      as a natural continuation of the transcript, not a
+                      separate detached box. */}
+                  <span className="text-emerald-400 font-mono text-xs font-semibold py-1.5 pl-1">»</span>
                   <input
                     ref={stdinRef}
                     type="text"
                     value={stdinInput}
                     onChange={e => setStdinInput(e.target.value)}
-                    placeholder="Type input and press Enter..."
+                    placeholder={ot.stdinPlaceholder}
                     className="flex-1 bg-transparent text-emerald-300 font-mono text-xs focus:outline-none placeholder:text-gray-700"
                     autoComplete="off"
                   />
@@ -268,10 +320,24 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings, 
                     <button
                       type="button"
                       onClick={onEndStdin}
-                      className="px-2 py-1 text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-400 rounded transition-colors"
+                      className="px-2 py-1 text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-400 rounded transition-colors shrink-0"
                       title="Send EOF (Ctrl+D)"
                     >
                       EOF
+                    </button>
+                  )}
+                  {/* Extra reach for Stop, right where the thumb already is on
+                      mobile — the Header button works too, but this saves a
+                      trip up the screen while typing input mid-run. */}
+                  {onStop && (
+                    <button
+                      type="button"
+                      onClick={onStop}
+                      className="flex items-center gap-1 px-2 py-1 text-[10px] bg-red-900/40 hover:bg-red-900/60 text-red-300 rounded transition-colors shrink-0"
+                      title={`${ui.stop} (Ctrl+C)`}
+                    >
+                      <Square size={9} fill="currentColor" />
+                      {ui.stop}
                     </button>
                   )}
                 </form>
@@ -345,6 +411,47 @@ export default function OutputPanel({ result, isLoading, onClear, showWarnings, 
             <Row label="stdout size" v={`${result.stdout.length} chars`} vc="text-gray-500" />
             <Row label="stderr size" v={`${result.stderr.length} chars`} vc="text-gray-500" />
             <Row label={ot.infoLabels.warnings} v={warnings.length > 0 ? `${warnings.length} (${showWarnings ? ot.infoValues.shown : ot.infoValues.hidden})` : ot.infoValues.none} vc={warnings.length > 0 ? 'text-yellow-400' : 'text-gray-500'} />
+          </div>
+        )}
+        {!isLoading && tab === 'files' && (
+          <div className="flex h-full">
+            <div className="w-32 shrink-0 border-r border-gray-800 overflow-y-auto py-1">
+              {outputFiles.map(f => (
+                <button
+                  key={f.name}
+                  onClick={() => setActiveFileTab(f.name)}
+                  className={`w-full text-left px-2 py-1.5 text-[10px] font-mono truncate transition-colors ${
+                    (activeFileTab ?? outputFiles[0]?.name) === f.name
+                      ? 'bg-sky-900/30 text-sky-300'
+                      : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800/50'
+                  }`}
+                  title={f.name}
+                >
+                  {f.name}
+                </button>
+              ))}
+            </div>
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {(() => {
+                const active = outputFiles.find(f => f.name === (activeFileTab ?? outputFiles[0]?.name)) ?? outputFiles[0];
+                if (!active) return null;
+                return (
+                  <>
+                    <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-800 shrink-0">
+                      <span className="text-[10px] text-gray-500">{active.size} bytes</span>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(active.content); toast.success(ot.copy); }}
+                        className="p-1 rounded hover:bg-gray-700 text-gray-600 hover:text-gray-300 transition-colors"
+                        title={ot.copy}
+                      >
+                        <Copy size={11} />
+                      </button>
+                    </div>
+                    <pre className="output-pre text-sky-200 flex-1 overflow-auto">{active.content || <span className="text-gray-700 italic">({ot.filesEmpty})</span>}</pre>
+                  </>
+                );
+              })()}
+            </div>
           </div>
         )}
         {!isLoading && tab === 'history' && (

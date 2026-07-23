@@ -14,8 +14,8 @@ export async function POST(req: NextRequest) {
     if (typeof body !== 'object' || body === null)
       return NextResponse.json({ error: 'Body must be a JSON object' }, { status: 400 });
 
-    const { code, input = '', optimize = false, langId = 'cpp20' } = body as {
-      code: unknown; input?: unknown; optimize?: unknown; langId?: unknown;
+    const { code, input = '', optimize = false, langId = 'cpp20', extraFiles = [] } = body as {
+      code: unknown; input?: unknown; optimize?: unknown; langId?: unknown; extraFiles?: unknown;
     };
 
     if (typeof code !== 'string' || code.trim() === '')
@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
       code, input, RUN_TIMEOUT_MS,
       optimize === true,
       typeof langId === 'string' ? langId : 'cpp20',
+      extraFiles,
     );
     return NextResponse.json(result, { status: 200 });
 

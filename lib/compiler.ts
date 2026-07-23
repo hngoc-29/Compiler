@@ -5,7 +5,7 @@
  */
 
 import { spawn } from 'child_process';
-import { readFile, writeFile, unlink, mkdir } from 'fs/promises';
+import { readFile, writeFile, mkdir, rm, readdir, stat } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
@@ -161,6 +161,9 @@ export interface CompileResult {
   exitCode: number;
   runtime: number;
   timedOut: boolean;
+  /** Files the running program created or modified (e.g. ofstream to an
+   *  .OUT file), read back after the run so they can be shown in the UI. */
+  outputFiles?: { name: string; content: string; size: number }[];
 }
 
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
@@ -171,9 +174,14 @@ function runProcess(
   args: string[],
   stdinData: string,
   timeoutMs: number,
+  cwd?: string,
 ): Promise<{ stdout: string; stderr: string; exitCode: number; timedOut: boolean }> {
   return new Promise((resolve) => {
-    const proc = spawn(cmd, args, { shell: false });
+    // cwd: without this, relative file paths in the running program (e.g.
+    // ifstream fin("input.inp")) resolve against the Next.js server's own
+    // working directory instead of the run's actual temp directory —
+    // confirmed empirically elsewhere in this codebase (see server.js).
+    const proc = spawn(cmd, args, { shell: false, cwd });
     let stdout = '', stderr = '', timedOut = false, settled = false;
 
     const timer = setTimeout(() => {
@@ -221,21 +229,33 @@ export async function compileToWasm(
   code: string,
   optimize = false,
   langId = 'cpp20',
+  extraFiles: unknown = [],
 ): Promise<{ jsCode: string | null; compileError: string | null }> {
   const lang = getLangById(langId);
   const id = randomUUID();
-  const tmpDir = os.tmpdir();
-  const srcFile = join(tmpDir, `wasm_${id}.${lang.ext}`);
-  const jsFile = join(tmpDir, `wasm_${id}.js`);
+  // Isolated per-run directory — same collision-safety fix as
+  // compileAndRun/compileAndRunStream (two concurrent compiles with an extra
+  // file of the same name used to be able to clobber each other).
+  const runDir = join(os.tmpdir(), `wasm_${id}`);
+  const srcFile = join(runDir, `main.${lang.ext}`);
+  const jsFile = join(runDir, `main.js`);
+
+  const safeExtras = sanitizeExtraFiles(extraFiles);
+  const extraPaths = safeExtras.map(f => ({ ...f, path: join(runDir, f.name) }));
 
   try {
+    await mkdir(runDir, { recursive: true });
     await writeFile(srcFile, code, { encoding: 'utf-8', mode: 0o644 });
+    await Promise.all(extraPaths.map(f => writeFile(f.path, f.content, { encoding: 'utf-8', mode: 0o644 })));
 
     const optFlag = optimize ? '-O2' : '-O0';
     const stdFlag = lang.args.find(a => a.startsWith('-std=')) ?? '-std=c++20';
     const emccPath = getEmccPath();
     // -I points at the bits/stdc++.h shim (see ensureWasmShimHeaders above).
     const shimDir = await ensureWasmShimHeaders();
+    const extraSources = extraPaths
+      .filter(f => /\.(cpp|cc|cxx|c)$/i.test(f.name))
+      .map(f => f.path);
 
     const emccArgs = [
       stdFlag, optFlag,
@@ -249,12 +269,20 @@ export async function compileToWasm(
       // without exporting it here, that call aborts at runtime with
       // "'callMain' was not exported. add it to EXPORTED_RUNTIME_METHODS".
       // Confirmed against the Emscripten FAQ / settings reference.
-      '-s', "EXPORTED_RUNTIME_METHODS=['callMain']",
+      //
+      // Also exporting 'FS': Module.print/printErr are LINE-buffered by
+      // design (Emscripten's own Filesystem API docs confirm this — a write
+      // with no trailing newline never reaches them until the program exits).
+      // The worker now drives true per-character stdout/stderr via the
+      // lower-level FS.init(input, output, error) API instead, which needs
+      // FS exported to be reachable as Module.FS from our code.
+      '-s', "EXPORTED_RUNTIME_METHODS=['callMain','FS']",
+      '-s', 'FORCE_FILESYSTEM=1',
       '-o', jsFile,
-      srcFile,
+      srcFile, ...extraSources,
     ];
 
-    const compileRes = await runProcess(emccPath, emccArgs, '', COMPILE_TIMEOUT);
+    const compileRes = await runProcess(emccPath, emccArgs, '', COMPILE_TIMEOUT, runDir);
     if (compileRes.exitCode !== 0) {
       return {
         jsCode: null,
@@ -266,11 +294,57 @@ export async function compileToWasm(
     return { jsCode, compileError: null };
 
   } finally {
-    await Promise.allSettled([
-      unlink(srcFile).catch(() => { }),
-      unlink(jsFile).catch(() => { }),
-    ]);
+    await rm(runDir, { recursive: true, force: true }).catch(() => { });
   }
+}
+
+export interface ExtraFileInput {
+  name: string;
+  content: string;
+}
+
+// Same safety boundary as server.js's sanitizeExtraFiles — extra files come
+// from the client, so filenames must be constrained before ever touching the
+// filesystem (no path separators, no "..", no absolute paths).
+const SAFE_FILENAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/;
+function sanitizeExtraFiles(extraFiles: unknown): ExtraFileInput[] {
+  if (!Array.isArray(extraFiles)) return [];
+  const seen = new Set<string>();
+  const out: ExtraFileInput[] = [];
+  for (const f of extraFiles) {
+    if (!f || typeof f !== 'object') continue;
+    const name = typeof (f as ExtraFileInput).name === 'string' ? (f as ExtraFileInput).name.trim() : '';
+    const content = typeof (f as ExtraFileInput).content === 'string' ? (f as ExtraFileInput).content : null;
+    if (content === null) continue;
+    if (!SAFE_FILENAME_RE.test(name) || name.includes('..')) continue;
+    if (seen.has(name)) continue;
+    if (Buffer.byteLength(content, 'utf-8') > 200 * 1024) continue;
+    seen.add(name);
+    out.push({ name, content });
+    if (out.length >= 20) break;
+  }
+  return out;
+}
+
+// After the program runs, read back any files it created or modified in its
+// working directory (e.g. `ofstream fout("BAI1.OUT")`). Mirrors server.js's
+// captureOutputFiles exactly — see that copy for the full rationale.
+async function captureOutputFiles(runDir: string, excludeNames: Set<string>) {
+  const results: { name: string; content: string; size: number }[] = [];
+  let names: string[];
+  try { names = await readdir(runDir); } catch { return results; }
+  for (const name of names) {
+    if (excludeNames.has(name)) continue;
+    const filePath = join(runDir, name);
+    try {
+      const st = await stat(filePath);
+      if (!st.isFile() || st.size > 500 * 1024) continue;
+      const content = await readFile(filePath, 'utf-8');
+      results.push({ name, content, size: st.size });
+      if (results.length >= 30) break;
+    } catch { /* not valid UTF-8 text, or vanished — skip rather than crash */ }
+  }
+  return results;
 }
 
 export async function compileAndRun(
@@ -279,22 +353,33 @@ export async function compileAndRun(
   timeoutMs = 10_000,
   optimize = false,
   langId = 'cpp20',
+  extraFiles: unknown = [],
 ): Promise<CompileResult> {
   const lang = getLangById(langId);
   const id = randomUUID();
-  const tmpDir = os.tmpdir();
-  const srcFile = join(tmpDir, `editor_${id}.${lang.ext}`);
-  const binFile = join(tmpDir, `editor_${id}.out`);
+  // Isolated per-run directory — see server.js's compileAndRunStream for the
+  // full rationale (fixes both a cross-run filename collision and the fact
+  // that a spawned process's relative file paths need a cwd to resolve
+  // against, which is also what makes file I/O work here at all).
+  const runDir = join(os.tmpdir(), `editor_${id}`);
+  const srcFile = join(runDir, `main.${lang.ext}`);
+  const binFile = join(runDir, `main.out`);
+
+  const safeExtras = sanitizeExtraFiles(extraFiles);
+  const extraPaths = safeExtras.map(f => ({ ...f, path: join(runDir, f.name) }));
 
   try {
+    await mkdir(runDir, { recursive: true });
     await writeFile(srcFile, code, { encoding: 'utf-8', mode: 0o644 });
+    await Promise.all(extraPaths.map(f => writeFile(f.path, f.content, { encoding: 'utf-8', mode: 0o644 })));
 
     // ── Python: không cần compile step ───────────────────────────────────
     if (lang.compiler === 'python3') {
       const t0 = Date.now();
-      const runRes = await runProcess('python3', [srcFile], input, timeoutMs);
+      const runRes = await runProcess('python3', [srcFile], input, timeoutMs, runDir);
       // Nếu exitCode != 0 và không phải timeout → coi stderr là lỗi runtime
       const isRuntimeError = runRes.exitCode !== 0 && !runRes.timedOut;
+      const outputFiles = await captureOutputFiles(runDir, new Set(['main.py', 'main.out']));
       return {
         stdout: runRes.stdout,
         stderr: isRuntimeError ? '' : runRes.stderr,
@@ -302,6 +387,7 @@ export async function compileAndRun(
         exitCode: runRes.exitCode,
         runtime: Date.now() - t0,
         timedOut: runRes.timedOut,
+        outputFiles,
       };
     }
 
@@ -311,15 +397,18 @@ export async function compileAndRun(
     const stdFlag = lang.args.find(a => a.startsWith('-std=')) ?? '-std=c++20';
     const warnings = lang.args.filter(a => a.startsWith('-W'));
     const extraLibs = lang.lang === 'c' ? ['-lm'] : [];
+    const extraSources = extraPaths
+      .filter(f => /\.(cpp|cc|cxx|c)$/i.test(f.name))
+      .map(f => f.path);
 
     const gppArgs = [
       stdFlag, optFlag, '-pipe',
       ...warnings,
       ...extraLibs,
-      '-o', binFile, srcFile,
+      '-o', binFile, srcFile, ...extraSources,
     ];
 
-    const compileRes = await runProcess(compiler, gppArgs, '', COMPILE_TIMEOUT);
+    const compileRes = await runProcess(compiler, gppArgs, '', COMPILE_TIMEOUT, runDir);
     if (compileRes.exitCode !== 0) {
       return {
         stdout: '', stderr: '',
@@ -330,7 +419,8 @@ export async function compileAndRun(
     }
 
     const t0 = Date.now();
-    const runRes = await runProcess(binFile, [], input, timeoutMs);
+    const runRes = await runProcess(binFile, [], input, timeoutMs, runDir);
+    const outputFiles = await captureOutputFiles(runDir, new Set(['main.cpp', 'main.c', 'main.out']));
     return {
       stdout: runRes.stdout,
       stderr: runRes.stderr,
@@ -338,12 +428,10 @@ export async function compileAndRun(
       exitCode: runRes.exitCode,
       runtime: Date.now() - t0,
       timedOut: runRes.timedOut,
+      outputFiles,
     };
 
   } finally {
-    await Promise.allSettled([
-      unlink(srcFile).catch(() => { }),
-      unlink(binFile).catch(() => { }),
-    ]);
+    await rm(runDir, { recursive: true, force: true }).catch(() => { });
   }
 }

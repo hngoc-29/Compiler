@@ -6,7 +6,7 @@
 
 import { use, useEffect, useState } from 'react';
 import { Loader2, AlertTriangle, Home } from 'lucide-react';
-import EditorLayout from '@/components/EditorLayout';
+import EditorLayout, { type ExtraFile } from '@/components/EditorLayout';
 import { type SavedTestCase } from '@/lib/testcases';
 import { I18nProvider, useI18n } from '@/lib/i18n-context';
 
@@ -21,6 +21,7 @@ function SharePageInner({ params }: PageProps) {
   const [initialCode,       setInitialCode]       = useState<string | undefined>(undefined);
   const [initialInput,      setInitialInput]      = useState<string | undefined>(undefined);
   const [initialTestCases,  setInitialTestCases]  = useState<SavedTestCase[] | undefined>(undefined);
+  const [initialExtraFiles, setInitialExtraFiles] = useState<ExtraFile[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [isDecoding, setIsDecoding] = useState(true);
 
@@ -45,6 +46,13 @@ function SharePageInner({ params }: PageProps) {
         } else {
           // Old format: only a single input was saved
           setInitialInput(typeof parsed.input === 'string' ? parsed.input : '');
+        }
+
+        if (Array.isArray(parsed.extraFiles)) {
+          setInitialExtraFiles(parsed.extraFiles.filter((f: unknown): f is ExtraFile =>
+            !!f && typeof f === 'object' && typeof (f as ExtraFile).name === 'string' &&
+            typeof (f as ExtraFile).content === 'string'
+          ).map((f: ExtraFile, i: number) => ({ id: f.id || `shared_${i}`, name: f.name, content: f.content })));
         }
       } catch (err) {
         console.error('[SharePage] Decode error:', err);
@@ -83,6 +91,7 @@ function SharePageInner({ params }: PageProps) {
       initialCode={initialCode}
       initialInput={initialInput}
       initialTestCases={initialTestCases}
+      initialExtraFiles={initialExtraFiles}
       isSharedView
     />
   );

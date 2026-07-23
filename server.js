@@ -11,7 +11,7 @@ const { parse } = require('url');
 const next = require('next');
 const { Server } = require('socket.io');
 const { spawn } = require('child_process');
-const { writeFile, unlink } = require('fs/promises');
+const { writeFile, unlink, mkdir, rm, readdir, readFile, stat } = require('fs/promises');
 const { join } = require('path');
 const { randomUUID } = require('crypto');
 const os = require('os');
@@ -71,9 +71,17 @@ const LANG_MAP = {
 
 // ─── Process runner (with optional streaming callbacks) ───────────────────────
 // Returns a Promise<result> AND exposes proc via callbacks.onProcess for interactive stdin.
-function runProcess(cmd, args, stdinData, timeoutMs, onStdout, onStderr, onProcess, interactive = false) {
+function runProcess(cmd, args, stdinData, timeoutMs, onStdout, onStderr, onProcess, interactive = false, cwd = undefined) {
   return new Promise((resolve) => {
-    const proc = spawn(cmd, args, { shell: false });
+    // BUG FIX: previously spawned with no `cwd`, so the child process
+    // inherited the SERVER's own working directory. A program doing
+    // `ifstream fin("input.inp")` (a relative path — extremely common in
+    // Vietnamese-judge-style problems that read/write files instead of
+    // stdin/stdout) would silently fail to find a file that was written
+    // correctly to the run's temp directory, just not the directory the
+    // process was actually looking in. Confirmed empirically: a spawn
+    // without `cwd` set can't see a file sitting right next to the source.
+    const proc = spawn(cmd, args, { shell: false, cwd });
     let stdout = '', stderr = '', timedOut = false, settled = false;
 
     // Expose the process handle so callers can pipe interactive stdin
@@ -147,15 +155,80 @@ function runProcess(cmd, args, stdinData, timeoutMs, onStdout, onStderr, onProce
 // process exited/got killed, which is exactly why output looked like it
 // arrived "as one lump at the end" instead of live. Passing `realtime: false`
 // keeps the old, unwrapped behavior available.
-async function compileAndRunStream(code, input, timeoutMs, optimize, langId, callbacks, interactive = false, realtime = true) {
+// Only simple, single-segment filenames — rejects anything that could escape
+// the run directory (path separators, "..", leading dot, empty, or absolute
+// paths). Extra files come from the client, so this is a real security
+// boundary, not just tidiness.
+const SAFE_FILENAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/;
+function sanitizeExtraFiles(extraFiles) {
+  if (!Array.isArray(extraFiles)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const f of extraFiles) {
+    if (!f || typeof f.name !== 'string' || typeof f.content !== 'string') continue;
+    const name = f.name.trim();
+    if (!SAFE_FILENAME_RE.test(name)) continue;
+    if (name.includes('..')) continue; // belt-and-suspenders, regex already excludes '/' and '.' at start
+    if (seen.has(name)) continue; // no duplicate filenames
+    if (Buffer.byteLength(f.content, 'utf-8') > 200 * 1024) continue; // 200KB/file cap
+    seen.add(name);
+    out.push({ name, content: f.content });
+    if (out.length >= 20) break; // hard cap on file count
+  }
+  return out;
+}
+
+// After the program runs, read back any files it created or modified in its
+// working directory — e.g. `ofstream fout("BAI1.OUT")`, a very common
+// pattern in file-I/O-style judge problems (read from X.INP, write to X.OUT
+// instead of stdin/stdout) rather than a niche case. `excludeNames` filters
+// out the compiler's own source/binary so those don't show up as "files the
+// program produced".
+async function captureOutputFiles(runDir, excludeNames) {
+  const results = [];
+  let names;
+  try { names = await readdir(runDir); } catch { return results; }
+  for (const name of names) {
+    if (excludeNames.has(name)) continue;
+    const filePath = join(runDir, name);
+    try {
+      const st = await stat(filePath);
+      if (!st.isFile() || st.size > 500 * 1024) continue; // skip dirs / >500KB
+      const content = await readFile(filePath, 'utf-8');
+      results.push({ name, content, size: st.size });
+      if (results.length >= 30) break;
+    } catch { /* not valid UTF-8 text, or vanished — skip rather than crash */ }
+  }
+  return results;
+}
+
+async function compileAndRunStream(code, input, timeoutMs, optimize, langId, callbacks, interactive = false, realtime = true, extraFiles = []) {
   const lang = LANG_MAP[langId] ?? LANG_MAP['cpp20'];
   const id = randomUUID();
-  const tmpDir = os.tmpdir();
-  const srcFile = join(tmpDir, `cppeditor_${id}.${lang.ext}`);
-  const binFile = join(tmpDir, `cppeditor_${id}.out`);
+  // BUG FIX: extra files used to be written straight into the SHARED system
+  // tmp dir using the person's own filenames (e.g. "input.inp") with no
+  // per-run isolation — two people (or two concurrent runs from the same
+  // person) both using a file named "input.inp" would collide and clobber
+  // each other. Every run now gets its own directory.
+  const runDir = join(os.tmpdir(), `run_${id}`);
+  const srcFile = join(runDir, `main.${lang.ext}`);
+  const binFile = join(runDir, `main.out`);
+
+  // Multi-file support: extra files — headers, helper .cpp/.py modules, OR
+  // plain data files like "input.inp"/"data.txt" — all land in this same
+  // run directory. For C/C++, a header like "utils.h" just needs to exist
+  // there for `#include "utils.h"` to resolve; any extra .cpp/.c/.cc get
+  // added as additional translation units below. For Python, sitting next
+  // to the entry script is what makes `import helper` work. For plain data
+  // files, the program can now find them via a relative path — see the cwd
+  // fix in runProcess above; without it this silently didn't work at all.
+  const safeExtras = sanitizeExtraFiles(extraFiles);
+  const extraPaths = safeExtras.map(f => ({ ...f, path: join(runDir, f.name) }));
 
   try {
+    await mkdir(runDir, { recursive: true });
     await writeFile(srcFile, code, { encoding: 'utf-8', mode: 0o644 });
+    await Promise.all(extraPaths.map(f => writeFile(f.path, f.content, { encoding: 'utf-8', mode: 0o644 })));
 
     // ── Python: no compile step ───────────────────────────────────────────
     if (lang.compiler === 'python3') {
@@ -166,9 +239,10 @@ async function compileAndRunStream(code, input, timeoutMs, optimize, langId, cal
         'python3', pyArgs, input, timeoutMs,
         callbacks.onStdout,
         callbacks.onStderr,
-        callbacks.onProcess, interactive);
+        callbacks.onProcess, interactive, runDir);
       const runtime = Date.now() - t0;
       const isRuntimeError = runRes.exitCode !== 0 && !runRes.timedOut;
+      const outputFiles = await captureOutputFiles(runDir, new Set(['main.py', 'main.out']));
       callbacks.onDone?.({
         stdout: runRes.stdout,
         stderr: isRuntimeError ? '' : runRes.stderr,
@@ -176,21 +250,27 @@ async function compileAndRunStream(code, input, timeoutMs, optimize, langId, cal
         exitCode: runRes.exitCode,
         runtime,
         timedOut: runRes.timedOut,
+        outputFiles,
       });
       return;
     }
 
     // ── C / C++: compile then run ─────────────────────────────────────────
     const optFlag = optimize ? '-O2' : '-O0';
+    // Extra translation units — only actual source files get compiled;
+    // headers (.h/.hpp/.hh) and data files are left alone.
+    const extraSources = extraPaths
+      .filter(f => /\.(cpp|cc|cxx|c)$/i.test(f.name))
+      .map(f => f.path);
     const compArgs = [
       lang.stdFlag, optFlag, '-pipe',
       '-Wall', '-Wextra',
       ...lang.extraLibs,
-      '-o', binFile, srcFile,
+      '-o', binFile, srcFile, ...extraSources,
     ];
 
     callbacks.onStatus?.('compiling');
-    const compileRes = await runProcess(lang.compiler, compArgs, '', COMPILE_TIMEOUT);
+    const compileRes = await runProcess(lang.compiler, compArgs, '', COMPILE_TIMEOUT, undefined, undefined, undefined, false, runDir);
 
     if (compileRes.exitCode !== 0) {
       callbacks.onDone?.({
@@ -214,8 +294,9 @@ async function compileAndRunStream(code, input, timeoutMs, optimize, langId, cal
       runCmd, runArgs, input, timeoutMs,
       callbacks.onStdout,
       callbacks.onStderr,
-      callbacks.onProcess, interactive);
+      callbacks.onProcess, interactive, runDir);
     const runtime = Date.now() - t0;
+    const outputFiles = await captureOutputFiles(runDir, new Set(['main.cpp', 'main.c', 'main.out']));
 
     callbacks.onDone?.({
       stdout: runRes.stdout,
@@ -224,12 +305,12 @@ async function compileAndRunStream(code, input, timeoutMs, optimize, langId, cal
       exitCode: runRes.exitCode,
       runtime,
       timedOut: runRes.timedOut,
+      outputFiles,
     });
   } finally {
-    await Promise.allSettled([
-      unlink(srcFile).catch(() => { }),
-      unlink(binFile).catch(() => { }),
-    ]);
+    // Whole run directory goes away in one shot — also cleans up any files
+    // the program itself created that we never explicitly wrote.
+    await rm(runDir, { recursive: true, force: true }).catch(() => { });
   }
 }
 
@@ -253,6 +334,9 @@ app.prepare().then(() => {
     let isCompiling = false;
     // Reference to the currently running child process (for interactive stdin)
     let activeProc = null;
+    // Set by compile:stop — lets onDone report "user stopped it" distinctly
+    // from a genuine runtime error (nonzero exit for an unrelated reason).
+    let wasStopped = false;
 
     // ── Interactive stdin: client sends data to the running process ──────────
     socket.on('compile:stdin', (data) => {
@@ -270,13 +354,29 @@ app.prepare().then(() => {
       }
     });
 
+    // ── Stop: user hit the Stop button or Ctrl+C — mirrors a real terminal's
+    // Ctrl+C (SIGINT) so a program can still clean up (close files, print a
+    // final message) if it traps the signal. If it's still alive shortly
+    // after, force it (SIGKILL) rather than leave it running server-side.
+    socket.on('compile:stop', () => {
+      if (!activeProc || activeProc.killed) return;
+      wasStopped = true;
+      try { activeProc.kill('SIGINT'); } catch { /* already gone */ }
+      const proc = activeProc;
+      setTimeout(() => {
+        if (proc && !proc.killed) {
+          try { proc.kill('SIGKILL'); } catch { /* already gone */ }
+        }
+      }, 1500);
+    });
+
     socket.on('compile', async (data) => {
       if (isCompiling) {
         socket.emit('compile:error', { message: 'Đang compile rồi, chờ tí!' });
         return;
       }
 
-      const { code, input = '', optimize = false, langId = 'cpp20', interactive = false, realtime = true } = data ?? {};
+      const { code, input = '', optimize = false, langId = 'cpp20', interactive = false, realtime = true, extraFiles = [] } = data ?? {};
 
       if (typeof code !== 'string' || !code.trim()) {
         socket.emit('compile:error', { message: 'Code không hợp lệ' });
@@ -290,6 +390,7 @@ app.prepare().then(() => {
 
       isCompiling = true;
       activeProc = null;
+      wasStopped = false;
 
       // In realtime mode, coalesce rapid stdout/stderr into small throttled
       // bursts (see makeThrottledEmitter) instead of one socket message per
@@ -331,10 +432,10 @@ app.prepare().then(() => {
               stdoutEmitter.flushNow();
               stderrEmitter.flushNow();
               activeProc = null;
-              socket.emit('compile:done', result);
+              socket.emit('compile:done', { ...result, stopped: wasStopped });
             },
             onProcess: (proc) => { activeProc = proc; },
-          }, interactive, realtime === true);
+          }, interactive, realtime === true, extraFiles);
       } catch (err) {
         activeProc = null;
         socket.emit('compile:error', { message: String(err) });

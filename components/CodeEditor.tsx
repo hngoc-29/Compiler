@@ -40,6 +40,11 @@ interface CodeEditorProps {
   diagnostics?: { line: number; col: number; message: string; severity: 'error' | 'warning' }[];
   settings?: EditorSettings;
   shortcuts?: Shortcuts;
+  /** Unique per-file identifier (e.g. filename). When switching between
+   *  multiple files, passing a distinct path lets Monaco keep a separate
+   *  model per file — each keeps its own undo history, cursor and scroll
+   *  position instead of them bleeding into each other on tab switch. */
+  path?: string;
 }
 
 const isTouchDevice = () =>
@@ -172,7 +177,7 @@ function setupMobileInteractions(editor: any, onSelectionChange?: (text: string 
 }
 
 export default function CodeEditor({
-  value, onChange, onRun, language = 'cpp', readOnly = false, diagnostics = [], settings, shortcuts,
+  value, onChange, onRun, language = 'cpp', readOnly = false, diagnostics = [], settings, shortcuts, path,
 }: CodeEditorProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const editorRef = useRef<any>(null);
@@ -507,6 +512,7 @@ export default function CodeEditor({
       <MonacoEditor
         height="100%"
         language={language}
+        path={path}
         theme={s?.theme ?? 'vs-dark'}
         value={value}
         onChange={onChange}
